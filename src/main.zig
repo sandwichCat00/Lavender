@@ -1,6 +1,7 @@
 const std = @import("std");
-const util = @import("util.zig");
+const ArgParser = @import("argParser.zig").ArgParser;
 
-pub fn main() void {
-    util.print("Hi, Mom\n", .{});
+pub fn main() !void {
+    const alloc = std.heap.page_allocator;
+    try ArgParser.init(alloc);
 }

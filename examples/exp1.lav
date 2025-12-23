@@ -1,0 +1,14 @@
+@import std;
+@import std.math as math;
+
+def add(a:int, b:int) {
+    return math.max(a, b)  + a; 
+}
+
+pub def main() {
+    let x = std.toInt(input("Enter No: "));
+    let y = std.toInt(input("Enter No: "));
+    std.out.println("add: {}", add(x,y));
+
+    return 1;
+  }

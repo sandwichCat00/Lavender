@@ -1,10 +1,10 @@
 const std = @import("std");
 const Err = @import("errors.zig").ArgError;
-const printErr = @import("errors.zig").err;
+const printErr = @import("errors.zig").errArg;
 pub const ArgParser = struct {
     fileName: []const u8,
 
-    pub fn init(alloc: std.mem.Allocator) Err!void {
+    pub fn init(alloc: std.mem.Allocator) Err!ArgParser {
         var ret: ArgParser = .{ .fileName = "" };
         var args = std.process.args();
         _ = args.next();
@@ -19,5 +19,7 @@ pub const ArgParser = struct {
         if (ret.fileName.len == 0) {
             printErr(Err.MissingFileName, .{});
         }
+
+        return ret;
     }
 };

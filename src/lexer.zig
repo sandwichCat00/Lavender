@@ -30,18 +30,13 @@ pub const Lexer = struct {
             if (idx >= len) return;
             if (std.ascii.isAlphabetic(src[idx]) or src[idx] == '_') {
                 const initIdx = idx;
-                var arr: std.ArrayList(u8) = .empty;
-                defer arr.deinit(self.alloc);
                 while (idx < len and
                     (std.ascii.isAlphanumeric(src[idx]) or src[idx] == '_'))
                 {
-                    try arr.append(self.alloc, src[idx]);
                     idx += 1;
                 }
-                try self.tokens.append(self.alloc, try lexeme.getTextType(self.alloc, initIdx, arr.items));
+                try self.tokens.append(self.alloc, try lexeme.getTextType(initIdx, src[initIdx..idx]));
             } else if (std.ascii.isDigit(src[idx])) {
-                var arr: std.ArrayList(u8) = .empty;
-                defer arr.deinit(self.alloc);
                 const initIdx = idx;
                 var hasDot = false;
                 while (idx < len and
@@ -54,10 +49,9 @@ pub const Lexer = struct {
                             hasDot = true;
                         }
                     }
-                    try arr.append(self.alloc, src[idx]);
                     idx += 1;
                 }
-                if (hasDot and arr.items[arr.items.len - 1] == '.') {
+                if (hasDot and src[idx - 1] == '.') {
                     printErr(Err.InvalidNumeric, .{ .fName = self.fName, .idx = idx, .src = src });
                 }
                 if (idx < len and
@@ -66,10 +60,10 @@ pub const Lexer = struct {
                     printErr(Err.InvalidNumeric, .{ .fName = self.fName, .idx = idx, .src = src });
                 }
                 if (hasDot) {
-                    const x = std.fmt.parseFloat(f64, arr.items) catch 0.0;
+                    const x = std.fmt.parseFloat(f64, src[initIdx..idx]) catch 0.0;
                     try self.tokens.append(self.alloc, .{ .idx = initIdx, .kind = .{ .FloatLiteral = x } });
                 } else {
-                    const x = std.fmt.parseInt(i64, arr.items, 10) catch 0;
+                    const x = std.fmt.parseInt(i64, src[initIdx..idx], 10) catch 0;
                     try self.tokens.append(self.alloc, .{ .idx = initIdx, .kind = .{ .IntLiteral = x } });
                 }
             } else if (src[idx] == '\"') {

@@ -143,7 +143,7 @@ pub fn getSymbol(src: []const u8, idx: *usize) !Token {
     return .{ .kind = kind, .idx = idx.* };
 }
 
-pub fn getTextType(alloc: std.mem.Allocator, idx: usize, txt: []const u8) !Token {
+pub fn getTextType(idx: usize, txt: []const u8) !Token {
     if (std.mem.eql(u8, txt, "import"))
         return .{ .idx = idx, .kind = .Import };
     if (std.mem.eql(u8, txt, "as"))
@@ -163,5 +163,5 @@ pub fn getTextType(alloc: std.mem.Allocator, idx: usize, txt: []const u8) !Token
     if (std.mem.eql(u8, txt, "return"))
         return .{ .idx = idx, .kind = .Return };
 
-    return .{ .idx = idx, .kind = .{ .Identifier = try alloc.dupe(u8, txt) } };
+    return .{ .idx = idx, .kind = .{ .Identifier = txt } };
 }

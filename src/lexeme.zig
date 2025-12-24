@@ -1,4 +1,5 @@
 const std = @import("std");
+const Err = @import("errors.zig").LexError;
 
 pub const TokenKind = union(enum) {
     Identifier: []const u8,
@@ -100,3 +101,67 @@ pub const Token = struct {
         };
     }
 };
+
+pub fn checkSymbol(char: u8) bool {
+    switch (char) {
+        '@', '=', '.', ',', ':', ';', '(', ')', '{', '}' => return true,
+        '+', '-', '*', '/', '%' => return true,
+        else => return false,
+    }
+}
+
+pub fn getSymbol(src: []const u8, idx: *usize) !Token {
+    if (idx.* >= src.len)
+        return Err.Unknown;
+
+    const kind: TokenKind = switch (src[idx.*]) {
+        '@' => .Declarative,
+
+        '.' => .MemberOp,
+        ';' => .StatEnd,
+        ':' => .TypeOf,
+        ',' => .Comma,
+
+        '(' => .ParenOpen,
+        ')' => .ParenClose,
+        '[' => .BrackOpen,
+        ']' => .BrackClose,
+        '{' => .BraceOpen,
+        '}' => .BraceClose,
+
+        '=' => .EqlOp,
+
+        '+' => .AddOp,
+        '-' => .SubOp,
+        '*' => .MulOp,
+        '/' => .DivOp,
+        '%' => .ModOp,
+
+        else => return Err.InvalidChar,
+    };
+
+    return .{ .kind = kind, .idx = idx.* };
+}
+
+pub fn getTextType(alloc: std.mem.Allocator, idx: usize, txt: []const u8) !Token {
+    if (std.mem.eql(u8, txt, "import"))
+        return .{ .idx = idx, .kind = .Import };
+    if (std.mem.eql(u8, txt, "as"))
+        return .{ .idx = idx, .kind = .As };
+    if (std.mem.eql(u8, txt, "def"))
+        return .{ .idx = idx, .kind = .Def };
+    if (std.mem.eql(u8, txt, "int"))
+        return .{ .idx = idx, .kind = .IntType };
+    if (std.mem.eql(u8, txt, "float"))
+        return .{ .idx = idx, .kind = .FloatType };
+    if (std.mem.eql(u8, txt, "str"))
+        return .{ .idx = idx, .kind = .StrType };
+    if (std.mem.eql(u8, txt, "pub"))
+        return .{ .idx = idx, .kind = .Public };
+    if (std.mem.eql(u8, txt, "let"))
+        return .{ .idx = idx, .kind = .Let };
+    if (std.mem.eql(u8, txt, "return"))
+        return .{ .idx = idx, .kind = .Return };
+
+    return .{ .idx = idx, .kind = .{ .Identifier = try alloc.dupe(u8, txt) } };
+}

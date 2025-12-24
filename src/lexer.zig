@@ -17,39 +17,6 @@ pub const Lexer = struct {
         };
     }
 
-    fn isSymbol(self: *@This(), idx: usize) bool {
-        if (idx >= self.src.len)
-            return false;
-        switch (self.src[idx]) {
-            '@', '=', '.', ',', ':', ';', '(', ')', '{', '}' => return true,
-            '+', '-', '*', '/', '%' => return true,
-            else => return false,
-        }
-    }
-
-    fn lexText(self: *@This(), idx: usize, txt: []const u8) !lexeme.Token {
-        if (std.mem.eql(u8, txt, "import"))
-            return .{ .idx = idx, .kind = .Import };
-        if (std.mem.eql(u8, txt, "as"))
-            return .{ .idx = idx, .kind = .As };
-        if (std.mem.eql(u8, txt, "def"))
-            return .{ .idx = idx, .kind = .Def };
-        if (std.mem.eql(u8, txt, "int"))
-            return .{ .idx = idx, .kind = .IntType };
-        if (std.mem.eql(u8, txt, "float"))
-            return .{ .idx = idx, .kind = .FloatType };
-        if (std.mem.eql(u8, txt, "str"))
-            return .{ .idx = idx, .kind = .StrType };
-        if (std.mem.eql(u8, txt, "pub"))
-            return .{ .idx = idx, .kind = .Public };
-        if (std.mem.eql(u8, txt, "let"))
-            return .{ .idx = idx, .kind = .Let };
-        if (std.mem.eql(u8, txt, "return"))
-            return .{ .idx = idx, .kind = .Return };
-
-        return .{ .idx = idx, .kind = .{ .Identifier = try self.alloc.dupe(u8, txt) } };
-    }
-
     pub fn lex(self: *@This()) Err!void {
         var idx: usize = 0;
         const len: usize = self.src.len;
@@ -71,7 +38,7 @@ pub const Lexer = struct {
                     try arr.append(self.alloc, src[idx]);
                     idx += 1;
                 }
-                try self.tokens.append(self.alloc, try self.lexText(initIdx, arr.items));
+                try self.tokens.append(self.alloc, try lexeme.getTextType(self.alloc, initIdx, arr.items));
             } else if (std.ascii.isDigit(src[idx])) {
                 var arr: std.ArrayList(u8) = .empty;
                 defer arr.deinit(self.alloc);
@@ -172,34 +139,8 @@ pub const Lexer = struct {
 
                 idx += 1;
                 try self.tokens.append(self.alloc, .{ .kind = .{ .CharLiteral = char }, .idx = idx });
-            } else if (self.isSymbol(idx)) {
-                const kind: lexeme.TokenKind = switch (src[idx]) {
-                    '@' => .Declarative,
-
-                    '.' => .MemberOp,
-                    ';' => .StatEnd,
-                    ':' => .TypeOf,
-                    ',' => .Comma,
-
-                    '(' => .ParenOpen,
-                    ')' => .ParenClose,
-                    '[' => .BrackOpen,
-                    ']' => .BrackClose,
-                    '{' => .BraceOpen,
-                    '}' => .BraceClose,
-
-                    '=' => .EqlOp,
-
-                    '+' => .AddOp,
-                    '-' => .SubOp,
-                    '*' => .MulOp,
-                    '/' => .DivOp,
-                    '%' => .ModOp,
-
-                    else => .Unset,
-                };
-
-                try self.tokens.append(self.alloc, .{ .kind = kind, .idx = idx });
+            } else if (lexeme.checkSymbol(src[idx])) {
+                try self.tokens.append(self.alloc, try lexeme.getSymbol(src, &idx));
                 idx += 1;
             } else {
                 printErr(Err.UnknownChar, .{ .fName = self.fName, .idx = idx, .src = src });

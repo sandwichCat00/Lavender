@@ -33,3 +33,8 @@ pub fn main() !void {
         std.debug.print("{s}\n", .{try t.toStr(alloc)});
     }
 }
+
+test "main test" {
+    _ = @import("lexeme.zig");
+    _ = @import("lexer.zig");
+}

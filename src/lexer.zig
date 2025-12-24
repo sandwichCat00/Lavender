@@ -1,14 +1,20 @@
 const std = @import("std");
 const Err = @import("errors.zig").LexError;
 const printErr = @import("errors.zig").errLex;
+const lexeme = @import("lexeme.zig");
 
 pub const Lexer = struct {
     src: []const u8,
     fName: []const u8,
+    tokens: std.ArrayList(lexeme.Token) = .empty,
     alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator, fName: []const u8, src: []const u8) @This() {
-        return .{ .src = src, .fName = fName, .alloc = alloc };
+        return .{
+            .src = src,
+            .fName = fName,
+            .alloc = alloc,
+        };
     }
 
     fn isSymbol(self: *@This(), idx: usize) bool {
@@ -21,7 +27,30 @@ pub const Lexer = struct {
         }
     }
 
-    pub fn lex(self: *@This()) !void {
+    fn lexText(self: *@This(), idx: usize, txt: []const u8) !lexeme.Token {
+        if (std.mem.eql(u8, txt, "import"))
+            return .{ .idx = idx, .kind = .Import };
+        if (std.mem.eql(u8, txt, "as"))
+            return .{ .idx = idx, .kind = .As };
+        if (std.mem.eql(u8, txt, "def"))
+            return .{ .idx = idx, .kind = .Def };
+        if (std.mem.eql(u8, txt, "int"))
+            return .{ .idx = idx, .kind = .IntType };
+        if (std.mem.eql(u8, txt, "float"))
+            return .{ .idx = idx, .kind = .FloatType };
+        if (std.mem.eql(u8, txt, "str"))
+            return .{ .idx = idx, .kind = .StrType };
+        if (std.mem.eql(u8, txt, "pub"))
+            return .{ .idx = idx, .kind = .Public };
+        if (std.mem.eql(u8, txt, "let"))
+            return .{ .idx = idx, .kind = .Let };
+        if (std.mem.eql(u8, txt, "return"))
+            return .{ .idx = idx, .kind = .Return };
+
+        return .{ .idx = idx, .kind = .{ .Identifier = try self.alloc.dupe(u8, txt) } };
+    }
+
+    pub fn lex(self: *@This()) Err!void {
         var idx: usize = 0;
         const len: usize = self.src.len;
         const src = self.src;
@@ -33,6 +62,7 @@ pub const Lexer = struct {
             }
             if (idx >= len) return;
             if (std.ascii.isAlphabetic(src[idx]) or src[idx] == '_') {
+                const initIdx = idx;
                 var arr: std.ArrayList(u8) = .empty;
                 defer arr.deinit(self.alloc);
                 while (idx < len and
@@ -41,11 +71,11 @@ pub const Lexer = struct {
                     try arr.append(self.alloc, src[idx]);
                     idx += 1;
                 }
-                std.debug.print("{s}\n", .{try arr.toOwnedSlice(self.alloc)});
+                try self.tokens.append(self.alloc, try self.lexText(initIdx, arr.items));
             } else if (std.ascii.isDigit(src[idx])) {
                 var arr: std.ArrayList(u8) = .empty;
                 defer arr.deinit(self.alloc);
-
+                const initIdx = idx;
                 var hasDot = false;
                 while (idx < len and
                     (std.ascii.isDigit(src[idx]) or src[idx] == '.'))
@@ -68,8 +98,15 @@ pub const Lexer = struct {
                 {
                     printErr(Err.InvalidNumeric, .{ .fName = self.fName, .idx = idx, .src = src });
                 }
-                std.debug.print("{s}\n", .{try arr.toOwnedSlice(self.alloc)});
+                if (hasDot) {
+                    const x = std.fmt.parseFloat(f64, arr.items) catch 0.0;
+                    try self.tokens.append(self.alloc, .{ .idx = initIdx, .kind = .{ .FloatLiteral = x } });
+                } else {
+                    const x = std.fmt.parseInt(i64, arr.items, 10) catch 0;
+                    try self.tokens.append(self.alloc, .{ .idx = initIdx, .kind = .{ .IntLiteral = x } });
+                }
             } else if (src[idx] == '\"') {
+                const initIdx = idx;
                 idx += 1;
                 var arr: std.ArrayList(u8) = .empty;
                 defer arr.deinit(self.alloc);
@@ -102,7 +139,7 @@ pub const Lexer = struct {
                     printErr(Err.InvalidStr, .{ .fName = self.fName, .idx = idx, .src = src });
                 }
                 idx += 1;
-                std.debug.print("{s}\n", .{try arr.toOwnedSlice(self.alloc)});
+                try self.tokens.append(self.alloc, .{ .kind = .{ .StrLiteral = try self.alloc.dupe(u8, arr.items) }, .idx = initIdx });
             } else if (src[idx] == '\'') {
                 var char: u8 = 0;
                 idx += 1;
@@ -134,9 +171,35 @@ pub const Lexer = struct {
                 }
 
                 idx += 1;
-                std.debug.print("{c}\n", .{char});
+                try self.tokens.append(self.alloc, .{ .kind = .{ .CharLiteral = char }, .idx = idx });
             } else if (self.isSymbol(idx)) {
-                std.debug.print("{c}\n", .{src[idx]});
+                const kind: lexeme.TokenKind = switch (src[idx]) {
+                    '@' => .Declarative,
+
+                    '.' => .MemberOp,
+                    ';' => .StatEnd,
+                    ':' => .TypeOf,
+                    ',' => .Comma,
+
+                    '(' => .ParenOpen,
+                    ')' => .ParenClose,
+                    '[' => .BrackOpen,
+                    ']' => .BrackClose,
+                    '{' => .BraceOpen,
+                    '}' => .BraceClose,
+
+                    '=' => .EqlOp,
+
+                    '+' => .AddOp,
+                    '-' => .SubOp,
+                    '*' => .MulOp,
+                    '/' => .DivOp,
+                    '%' => .ModOp,
+
+                    else => .Unset,
+                };
+
+                try self.tokens.append(self.alloc, .{ .kind = kind, .idx = idx });
                 idx += 1;
             } else {
                 printErr(Err.UnknownChar, .{ .fName = self.fName, .idx = idx, .src = src });

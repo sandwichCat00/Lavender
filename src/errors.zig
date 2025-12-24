@@ -15,6 +15,7 @@ pub const LexError = error{
     InvalidEscSeq,
     InvalidChar,
     OutOfMemory,
+    Unknown,
 };
 
 pub const ErrParameters = struct {
@@ -49,9 +50,10 @@ pub fn errArg(er: ArgError, par: ErrParameters) void {
             std.debug.print("{s}{s}{s}: ", .{ Colors.fg(.yellow), par.fName, Colors.fg(.reset) });
             std.debug.print("File too big.", .{});
         },
-
-        else => {
-            std.debug.print("{s}Error{s}: Invalid error.\n", .{ Colors.fg(.red), Colors.fg(.reset) });
+        ArgError.OutOfMemory => {
+            std.debug.print("{s}Error{s}: ", .{ Colors.fg(.red), Colors.fg(.reset) });
+            std.debug.print("{s}{s}{s}: ", .{ Colors.fg(.yellow), par.fName, Colors.fg(.reset) });
+            std.debug.print("Out of memory.", .{});
         },
     }
 
@@ -107,7 +109,8 @@ pub fn errLex(er: LexError, par: ErrParameters) void {
         LexError.InvalidStr => std.debug.print("Invalid string literal", .{}),
         LexError.InvalidEscSeq => std.debug.print("Invalid escape sequence '\\{c}'", .{par.src[par.idx]}),
         LexError.InvalidChar => std.debug.print("Invalid char literal", .{}),
-        LexError.OutOfMemory => std.debug.print("Unknown error", .{}),
+        LexError.OutOfMemory => std.debug.print("Out of memory", .{}),
+        LexError.Unknown => std.debug.print("Unknown error", .{}),
     }
 
     std.debug.print("\n  {s}\n  ", .{getLineAtIndex(par.src, par.idx)});

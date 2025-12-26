@@ -43,4 +43,5 @@ pub fn main() !void {
 test "main test" {
     _ = @import("lexeme.zig");
     _ = @import("lexer.zig");
+    _ = @import("parser.zig");
 }

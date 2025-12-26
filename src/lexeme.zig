@@ -47,20 +47,16 @@ pub const Token = struct {
     idx: usize,
     kind: TokenKind,
 
-    pub fn init(idx: usize) @This() {
-        return .{ .idx = idx, .kind = .Unset };
-    }
-
     pub fn toStr(
         self: *const @This(),
         alloc: std.mem.Allocator,
     ) ![]const u8 {
         return switch (self.kind) {
-            // .Identifier => |x| try alloc.dupe(u8, x),
+            .Identifier => |x| try alloc.dupe(u8, x),
             // .StrLiteral => |x| try alloc.dupe(u8, x),
 
-            .Identifier => |x| try std.fmt.allocPrint(alloc, "[IDNT: {s}]", .{x}),
-            .StrLiteral => |x| try std.fmt.allocPrint(alloc, "[STR: {s}]", .{x}),
+            // .Identifier => |x| try std.fmt.allocPrint(alloc, "[IDNT: {s}]", .{x}),
+            .StrLiteral => |x| try std.fmt.allocPrint(alloc, "\"{s}\"", .{x}),
             .IntLiteral => |x| try std.fmt.allocPrint(alloc, "{}", .{x}),
             .FloatLiteral => |x| try std.fmt.allocPrint(alloc, "{}", .{x}),
             .CharLiteral => |x| try std.fmt.allocPrint(alloc, "'{c}'", .{x}),

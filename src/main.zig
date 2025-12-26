@@ -28,10 +28,16 @@ pub fn main() !void {
             else => printLexErr(LexErr.Unknown, .{}),
         }
     };
-
-    for (lex.tokens.items) |t| {
-        std.debug.print("{s}\n", .{try t.toStr(alloc)});
+    const stats = try lex.toStatements(alloc);
+    for (stats.items) |stat| {
+        for (stat.items) |tok| {
+            std.debug.print("{s} ", .{try tok.toStr(alloc)});
+        }
+        std.debug.print("\n", .{});
     }
+    // for (lex.tokens.items) |t| {
+    //     std.debug.print("{s}\n", .{try t.toStr(alloc)});
+    // }
 }
 
 test "main test" {

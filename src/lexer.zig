@@ -181,6 +181,43 @@ pub const Lexer = struct {
             }
         }
     }
+
+    pub fn toStatements(self: *@This(), alloc: std.mem.Allocator) error{OutOfMemory}!std.ArrayList(std.ArrayList(lexeme.Token)) {
+        var stats: std.ArrayList(std.ArrayList(lexeme.Token)) = .empty;
+        var idx: usize = 0;
+        const tokens = self.tokens.items;
+        if (tokens.len == 0)
+            return stats;
+
+        while (idx < tokens.len) {
+            var stat: std.ArrayList(lexeme.Token) = .empty;
+            while (idx < tokens.len and tokens[idx].kind != .StatEnd) {
+                if (tokens[idx].kind == .BraceOpen or tokens[idx].kind == .BraceClose) {
+                    if (stat.items.len != 0)
+                        try stats.append(alloc, stat);
+                    stat = .empty;
+                    try stat.append(alloc, tokens[idx]);
+                    break;
+                } else {
+                    switch (tokens[idx].kind) {
+                        .StrLiteral => |s| {
+                            var tok = tokens[idx];
+                            tok.kind = .{ .StrLiteral = try alloc.dupe(u8, s) };
+                            try stat.append(alloc, tok);
+                        },
+                        else => {
+                            try stat.append(alloc, tokens[idx]);
+                        },
+                    }
+                }
+                idx += 1;
+            }
+            if (stat.items.len != 0)
+                try stats.append(alloc, stat);
+            idx += 1;
+        }
+        return stats;
+    }
 };
 
 fn match(items: []lexeme.Token, kinds: []const lexeme.TokenKind) !void {
@@ -214,6 +251,37 @@ fn match(items: []lexeme.Token, kinds: []const lexeme.TokenKind) !void {
                 try testing.expect(tag == kinds[idx]);
             },
         }
+    }
+}
+
+fn matchX(tok: lexeme.Token, kind: lexeme.TokenKind) !void {
+    switch (tok.kind) {
+        .FloatLiteral => |x| switch (kind) {
+            .FloatLiteral => |y| try testing.expect(x == y),
+            else => return error.x,
+        },
+        .CharLiteral => |x| switch (kind) {
+            .CharLiteral => |y| try testing.expect(x == y),
+            else => return error.x,
+        },
+        .StrLiteral => |x| switch (kind) {
+            .StrLiteral => |y| try testing.expect(std.mem.eql(u8, x, y)),
+            else => return error.x,
+        },
+        .Identifier => |x| switch (kind) {
+            .Identifier => |y| try testing.expect(std.mem.eql(u8, x, y)),
+            else => return error.x,
+        },
+
+        .IntLiteral => |x| switch (kind) {
+            .IntLiteral => |y| try testing.expect(x == y),
+            else => return error.x,
+        },
+        else => {
+            const tag = std.meta.activeTag(tok.kind);
+
+            try testing.expect(tag == kind);
+        },
     }
 }
 
@@ -348,4 +416,102 @@ test "lexer error Invalid Char" {
     lex = Lexer.init(testing.allocator, "", "'a");
     try testing.expectError(Err.InvalidChar, lex.lex());
     lex.deinit();
+}
+
+test "toStatements empty" {
+    isTest = true;
+
+    var lex = Lexer.init(testing.allocator, "", "");
+    try lex.lex();
+    const stats = try lex.toStatements(testing.allocator);
+    lex.deinit();
+    try testing.expect(stats.items.len == 0);
+}
+
+test "toStatements text" {
+    isTest = true;
+    const stat0 = [_]lexeme.Token{
+        .{ .idx = 0, .kind = .Declarative },
+        .{ .idx = 0, .kind = .Import },
+        .{ .idx = 0, .kind = .{ .Identifier = "std" } },
+    };
+
+    const stat1 = [_]lexeme.Token{
+        .{ .idx = 0, .kind = .Declarative },
+        .{ .idx = 0, .kind = .Import },
+        .{ .idx = 0, .kind = .{ .Identifier = "std" } },
+        .{ .idx = 0, .kind = .MemberOp },
+        .{ .idx = 0, .kind = .{ .Identifier = "math" } },
+        .{ .idx = 0, .kind = .As },
+        .{ .idx = 0, .kind = .{ .Identifier = "math" } },
+    };
+
+    const stat2 = [_]lexeme.Token{
+        .{ .idx = 0, .kind = .Def },
+        .{ .idx = 0, .kind = .{ .Identifier = "add" } },
+        .{ .idx = 0, .kind = .ParenOpen },
+        .{ .idx = 0, .kind = .{ .Identifier = "a" } },
+        .{ .idx = 0, .kind = .TypeOf },
+        .{ .idx = 0, .kind = .IntType },
+        .{ .idx = 0, .kind = .Comma },
+        .{ .idx = 0, .kind = .{ .Identifier = "b" } },
+        .{ .idx = 0, .kind = .TypeOf },
+        .{ .idx = 0, .kind = .IntType },
+        .{ .idx = 0, .kind = .ParenClose },
+    };
+
+    const stat3 = [_]lexeme.Token{
+        .{ .idx = 0, .kind = .BraceOpen },
+    };
+
+    const stat4 = [_]lexeme.Token{
+        .{ .idx = 0, .kind = .Return },
+        .{ .idx = 0, .kind = .{ .Identifier = "math" } },
+        .{ .idx = 0, .kind = .MemberOp },
+        .{ .idx = 0, .kind = .{ .Identifier = "max" } },
+        .{ .idx = 0, .kind = .ParenOpen },
+        .{ .idx = 0, .kind = .{ .Identifier = "a" } },
+        .{ .idx = 0, .kind = .Comma },
+        .{ .idx = 0, .kind = .{ .Identifier = "b" } },
+        .{ .idx = 0, .kind = .ParenClose },
+        .{ .idx = 0, .kind = .AddOp },
+        .{ .idx = 0, .kind = .{ .Identifier = "a" } },
+    };
+
+    const stat5 = [_]lexeme.Token{
+        .{ .idx = 0, .kind = .BraceClose },
+    };
+    const expectedStats = [_][]const lexeme.Token{
+        stat0[0..],
+        stat1[0..],
+        stat2[0..],
+        stat3[0..],
+        stat4[0..],
+        stat5[0..],
+    };
+
+    var lex = Lexer.init(testing.allocator, "",
+        \\@import std;
+        \\@import std.math as math;
+        \\def add(a:int, b:int) {
+        \\    return math.max(a, b)  + a; 
+        \\}
+    );
+    try lex.lex();
+    var stats = try lex.toStatements(testing.allocator);
+    lex.deinit();
+
+    try testing.expect(stats.items.len == expectedStats.len);
+    for (stats.items, 0..) |*stat, idx| {
+        try testing.expect(stat.*.items.len == expectedStats[idx].len);
+        for (stat.items, 0..) |*tok, idy| {
+            try matchX(tok.*, expectedStats[idx][idy].kind);
+            switch (tok.*.kind) {
+                .StrLiteral => |s| testing.allocator.free(s),
+                else => {},
+            }
+        }
+        stat.*.deinit(testing.allocator);
+    }
+    stats.deinit(testing.allocator);
 }

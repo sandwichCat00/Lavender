@@ -12,6 +12,10 @@ pub const DefDecl = struct {
     name: []const u8,
     parameters: std.ArrayList(struct { identifier: lexeme.Token, type: lexeme.Token }),
     statements: std.ArrayList(AstNode),
+
+    pub fn init() @This() {
+        return .{ .name = "", .statements = .empty, .parameters = .empty };
+    }
 };
 
 pub const Module = struct {

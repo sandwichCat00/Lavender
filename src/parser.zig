@@ -1,8 +1,7 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const lexeme = @import("lexeme.zig");
-const Err = @import("errors.zig").ParsError;
-const printErr = @import("errors.zig").errParse;
+const err = @import("util.zig").err;
 
 pub const Parser = struct {
     statements: std.ArrayList(std.ArrayList(lexeme.Token)),
@@ -27,6 +26,14 @@ pub const Parser = struct {
             self.idy = 0;
             if (stats[self.idx].items[0].kind == .Declarative) {
                 try self.parseDeclarative(&mod);
+            } else {
+                err(
+                    self.fName,
+                    self.src,
+                    stats[self.idx].items[0].idx,
+                    "Unexpected token caught: {s}, expected 'def' or <declarative>",
+                    .{try stats[self.idx].items[0].toStr(self.alloc)},
+                );
             }
             self.idx += 1;
         }
@@ -37,68 +44,81 @@ pub const Parser = struct {
         self.idy += 1;
         const stat = self.statements.items[self.idx].items;
         if (self.idy >= stat.len)
-            printErr(Err.ExpectedDecl, .{
-                .idx = stat[self.idy - 1].idx,
-                .fName = self.fName,
-                .src = self.src,
-            });
+            err(
+                self.fName,
+                self.src,
+                stat[self.idy - 1].idx,
+                "Expected declarative command, found <None>",
+                .{},
+            );
+
         if (stat[self.idy].kind == .Import) {
             var import: ast.Import = .{ .path = .empty, .alias = "" };
             self.idy += 1;
             if (self.idy >= stat.len)
-                printErr(Err.ExpectedMod, .{
-                    .idx = stat[self.idy - 1].idx,
-                    .fName = self.fName,
-                    .src = self.src,
-                });
+                err(
+                    self.fName,
+                    self.src,
+                    stat[self.idy - 1].idx,
+                    "Expected module name, found <None>",
+                    .{},
+                );
+
             switch (stat[self.idy].kind) {
                 .Identifier => |s| try import.path.append(self.alloc, s),
-                else => printErr(Err.InvalidMod, .{
-                    .idx = stat[self.idy].idx,
-                    .fName = self.fName,
-                    .keyword = try stat[self.idy].toStr(self.alloc),
-                    .src = self.src,
-                }),
+                else => err(
+                    self.fName,
+                    self.src,
+                    stat[self.idy].idx,
+                    "Invalid module name used {s}",
+                    .{try stat[self.idy].toStr(self.alloc)},
+                ),
             }
             self.idy += 1;
             while (self.idy < stat.len and stat[self.idy].kind == .MemberOp) {
                 self.idy += 1;
                 if (self.idy >= stat.len)
-                    printErr(Err.ExpectedMod, .{
-                        .idx = stat[self.idy - 1].idx,
-                        .fName = self.fName,
-                        .src = self.src,
-                    });
+                    err(
+                        self.fName,
+                        self.src,
+                        stat[self.idy - 1].idx,
+                        "Expected sub-module name, found <None>",
+                        .{},
+                    );
 
                 switch (stat[self.idy].kind) {
                     .Identifier => |s| try import.path.append(self.alloc, s),
-                    else => printErr(Err.InvalidMod, .{
-                        .idx = stat[self.idy].idx,
-                        .fName = self.fName,
-                        .keyword = try stat[self.idy].toStr(self.alloc),
-                        .src = self.src,
-                    }),
+                    else => err(
+                        self.fName,
+                        self.src,
+                        stat[self.idy].idx,
+                        "Invalid module name used: {s}",
+                        .{try stat[self.idy].toStr(self.alloc)},
+                    ),
                 }
                 self.idy += 1;
             }
             if (self.idy >= stat.len and import.path.items.len > 1)
-                printErr(Err.ExpectedAlias, .{
-                    .idx = stat[self.idy - 1].idx,
-                    .fName = self.fName,
-                    .src = self.src,
-                });
+                err(
+                    self.fName,
+                    self.src,
+                    stat[self.idy - 1].idx,
+                    "Expected alias for nested module imports",
+                    .{},
+                );
 
             if (self.idy < stat.len) {
                 switch (stat[self.idy].kind) {
                     .As => {
                         self.idy += 1;
                         if (self.idy >= stat.len) {
-                            printErr(Err.ExpectedAlias, .{
-                                .idx = stat[self.idy].idx,
-                                .fName = self.fName,
-                                .keyword = try stat[self.idy].toStr(self.alloc),
-                                .src = self.src,
-                            });
+                            err(
+                                self.fName,
+                                self.src,
+                                stat[self.idy - 1].idx,
+                                "Expected alias identifier as 'as'",
+                                .{},
+                            );
                         }
                         switch (stat[self.idy].kind) {
                             .Identifier => |s| {
@@ -106,41 +126,46 @@ pub const Parser = struct {
                                 self.idy += 1;
                             },
                             else => {
-                                printErr(Err.ExpectedAlias, .{
-                                    .idx = stat[self.idy].idx,
-                                    .fName = self.fName,
-                                    .src = self.src,
-                                });
+                                err(
+                                    self.fName,
+                                    self.src,
+                                    stat[self.idy].idx,
+                                    "Invalid alias identifier found: {s}",
+                                    .{try stat[self.idy].toStr(self.alloc)},
+                                );
                             },
                         }
                     },
                     else => {
-                        printErr(Err.InvalidToken, .{
-                            .idx = stat[self.idy].idx,
-                            .fName = self.fName,
-                            .keyword = try stat[self.idy].toStr(self.alloc),
-                            .src = self.src,
-                        });
+                        err(
+                            self.fName,
+                            self.src,
+                            stat[self.idy].idx,
+                            "Invalid token used: {s}",
+                            .{try stat[self.idy].toStr(self.alloc)},
+                        );
                     },
                 }
             } else {
                 import.alias = import.path.items[0];
             }
             if (self.idy < stat.len)
-                printErr(Err.InvalidToken, .{
-                    .idx = stat[self.idy].idx,
-                    .fName = self.fName,
-                    .keyword = try stat[self.idy].toStr(self.alloc),
-                    .src = self.src,
-                });
+                err(
+                    self.fName,
+                    self.src,
+                    stat[self.idy].idx,
+                    "Invalid token used: {s}",
+                    .{try stat[self.idy].toStr(self.alloc)},
+                );
             try mod.*.imports.append(self.alloc, import);
         } else {
-            printErr(Err.InvalidDecl, .{
-                .idx = stat[self.idy].idx,
-                .fName = self.fName,
-                .keyword = try stat[self.idy].toStr(self.alloc),
-                .src = self.src,
-            });
+            err(
+                self.fName,
+                self.src,
+                stat[self.idy].idx,
+                "Unknown declarative command used: {s}",
+                .{try stat[self.idy].toStr(self.alloc)},
+            );
         }
     }
 };
@@ -151,6 +176,7 @@ test "parse import statements" {
     var lex = @import("lexer.zig").Lexer.init(testing.allocator, "",
         \\@import std;
         \\@import std.math as math;
+        \\ def add(a: int, b: int) {}
     );
     defer lex.deinit();
 

@@ -1,6 +1,5 @@
 const std = @import("std");
-const Err = @import("errors.zig").LexError;
-const printErr = @import("errors.zig").errLex;
+const err = @import("util.zig").err;
 const lexeme = @import("lexeme.zig");
 const testing = std.testing;
 
@@ -29,7 +28,7 @@ pub const Lexer = struct {
         self.tokens.deinit(self.alloc);
     }
 
-    pub fn lex(self: *@This()) Err!void {
+    pub fn lex(self: *@This()) !void {
         var idx: usize = 0;
         const len: usize = self.src.len;
         const src = self.src;
@@ -57,8 +56,8 @@ pub const Lexer = struct {
                     if (src[idx] == '.') {
                         if (hasDot) {
                             if (!isTest) {
-                                printErr(Err.InvalidNumeric, .{ .fName = self.fName, .idx = idx, .src = src });
-                            } else return Err.InvalidNumeric;
+                                err(self.fName, self.src, idx, "Invalid sufix to the numeric", .{});
+                            } else return error.InvalidNumeric;
                         } else {
                             hasDot = true;
                         }
@@ -67,15 +66,15 @@ pub const Lexer = struct {
                 }
                 if (hasDot and src[idx - 1] == '.') {
                     if (!isTest) {
-                        printErr(Err.InvalidNumeric, .{ .fName = self.fName, .idx = idx, .src = src });
-                    } else return Err.InvalidNumeric;
+                        err(self.fName, self.src, idx, "Invalid sufix to the numeric", .{});
+                    } else return error.InvalidNumeric;
                 }
                 if (idx < len and
                     (std.ascii.isAlphanumeric(src[idx]) or src[idx] == '_'))
                 {
                     if (!isTest) {
-                        printErr(Err.InvalidNumeric, .{ .fName = self.fName, .idx = idx, .src = src });
-                    } else return Err.InvalidNumeric;
+                        err(self.fName, self.src, idx, "Invalid sufix to the numeric", .{});
+                    } else return error.InvalidNumeric;
                 }
                 if (hasDot) {
                     const x = std.fmt.parseFloat(f64, src[initIdx..idx]) catch 0.0;
@@ -95,8 +94,8 @@ pub const Lexer = struct {
                         idx += 1;
                         if (idx >= len) {
                             if (!isTest) {
-                                printErr(Err.InvalidEscSeq, .{ .fName = self.fName, .idx = idx, .src = src });
-                            } else return Err.InvalidEscSeq;
+                                err(self.fName, self.src, idx, "Invalid escape sequence", .{});
+                            } else return error.InvalidEscSeq;
                         }
                         try arr.append(self.alloc, switch (src[idx]) {
                             'n' => '\n',
@@ -106,8 +105,8 @@ pub const Lexer = struct {
                             '\\', '\'', '\"', '\n' => src[idx],
                             else => {
                                 if (!isTest) {
-                                    printErr(Err.InvalidEscSeq, .{ .fName = self.fName, .idx = idx, .src = src });
-                                } else return Err.InvalidEscSeq;
+                                    err(self.fName, self.src, idx, "Invalid escape sequence", .{});
+                                } else return error.InvalidEscSeq;
 
                                 return undefined;
                             },
@@ -115,8 +114,8 @@ pub const Lexer = struct {
                     } else {
                         if (src[idx] == '\n')
                             if (!isTest) {
-                                printErr(Err.InvalidStr, .{ .fName = self.fName, .idx = idx, .src = src });
-                            } else return Err.InvalidStr;
+                                err(self.fName, self.src, idx, "Invalid character '\\n' in string literal", .{});
+                            } else return error.InvalidStr;
 
                         try arr.append(self.alloc, src[idx]);
                     }
@@ -124,8 +123,8 @@ pub const Lexer = struct {
                 }
                 if (idx >= len or src[idx] != '\"') {
                     if (!isTest) {
-                        printErr(Err.InvalidStr, .{ .fName = self.fName, .idx = idx, .src = src });
-                    } else return Err.InvalidStr;
+                        err(self.fName, self.src, idx, "Invalid string literal", .{});
+                    } else return error.InvalidStr;
                 }
                 idx += 1;
                 try self.tokens.append(self.alloc, .{ .kind = .{ .StrLiteral = try self.alloc.dupe(u8, arr.items) }, .idx = initIdx });
@@ -134,15 +133,15 @@ pub const Lexer = struct {
                 idx += 1;
                 if (idx >= len or src[idx] == '\n') {
                     if (!isTest) {
-                        printErr(Err.InvalidChar, .{ .fName = self.fName, .idx = idx, .src = src });
-                    } else return Err.InvalidChar;
+                        err(self.fName, self.src, idx, "Invalid character literal", .{});
+                    } else return error.InvalidChar;
                 }
                 if (src[idx] == '\\') {
                     idx += 1;
                     if (idx >= len) {
                         if (!isTest) {
-                            printErr(Err.InvalidEscSeq, .{ .fName = self.fName, .idx = idx, .src = src });
-                        } else return Err.InvalidEscSeq;
+                            err(self.fName, self.src, idx, "Invalid escape sequence", .{});
+                        } else return error.InvalidEscSeq;
                     }
                     char = switch (src[idx]) {
                         'n' => '\n',
@@ -152,8 +151,8 @@ pub const Lexer = struct {
                         '\\', '\'', '\"' => src[idx],
                         else => {
                             if (!isTest) {
-                                printErr(Err.InvalidEscSeq, .{ .fName = self.fName, .idx = idx, .src = src });
-                            } else return Err.InvalidEscSeq;
+                                err(self.fName, self.src, idx, "Invalid escape sequence", .{});
+                            } else return error.InvalidEscSeq;
 
                             return undefined;
                         },
@@ -164,8 +163,8 @@ pub const Lexer = struct {
                 idx += 1;
                 if (idx >= len or src[idx] != '\'') {
                     if (!isTest) {
-                        printErr(Err.InvalidChar, .{ .fName = self.fName, .idx = idx, .src = src });
-                    } else return Err.InvalidChar;
+                        err(self.fName, self.src, idx, "Invalid character literal", .{});
+                    } else return error.InvalidChar;
                 }
 
                 idx += 1;
@@ -175,8 +174,8 @@ pub const Lexer = struct {
                 idx += 1;
             } else {
                 if (!isTest) {
-                    printErr(Err.UnknownChar, .{ .fName = self.fName, .idx = idx, .src = src });
-                } else return Err.UnknownChar;
+                    err(self.fName, self.src, idx, "Unknown character found in src file: {c}", .{src[idx]});
+                } else return error.UnknownChar;
                 idx += 1;
             }
         }
@@ -352,26 +351,26 @@ test "lexer error UnknownChar" {
     isTest = true;
 
     var lex = Lexer.init(testing.allocator, "", "#");
-    try testing.expectError(Err.UnknownChar, lex.lex());
+    try testing.expectError(error.UnknownChar, lex.lex());
     lex.deinit();
 
     lex = Lexer.init(testing.allocator, "", "λ");
-    try testing.expectError(Err.UnknownChar, lex.lex());
+    try testing.expectError(error.UnknownChar, lex.lex());
     lex.deinit();
 }
 test "lexer error Invalid Numeric" {
     isTest = true;
 
     var lex = Lexer.init(testing.allocator, "", "1.2.1");
-    try testing.expectError(Err.InvalidNumeric, lex.lex());
+    try testing.expectError(error.InvalidNumeric, lex.lex());
     lex.deinit();
 
     lex = Lexer.init(testing.allocator, "", "1.2.");
-    try testing.expectError(Err.InvalidNumeric, lex.lex());
+    try testing.expectError(error.InvalidNumeric, lex.lex());
     lex.deinit();
 
     lex = Lexer.init(testing.allocator, "", "123abc");
-    try testing.expectError(Err.InvalidNumeric, lex.lex());
+    try testing.expectError(error.InvalidNumeric, lex.lex());
     lex.deinit();
 }
 
@@ -379,42 +378,42 @@ test "lexer error Invalid String" {
     isTest = true;
 
     var lex = Lexer.init(testing.allocator, "", "\"hello");
-    try testing.expectError(Err.InvalidStr, lex.lex());
+    try testing.expectError(error.InvalidStr, lex.lex());
     lex.deinit();
 
     lex = Lexer.init(testing.allocator, "", "\"");
-    try testing.expectError(Err.InvalidStr, lex.lex());
+    try testing.expectError(error.InvalidStr, lex.lex());
     lex.deinit();
     lex = Lexer.init(testing.allocator, "", "\"hello\nworld\"");
-    try testing.expectError(Err.InvalidStr, lex.lex());
+    try testing.expectError(error.InvalidStr, lex.lex());
     lex.deinit();
 
     lex = Lexer.init(testing.allocator, "", "\"\\x\"");
-    try testing.expectError(Err.InvalidEscSeq, lex.lex());
+    try testing.expectError(error.InvalidEscSeq, lex.lex());
     lex.deinit();
     lex = Lexer.init(testing.allocator, "", "\"\\");
-    try testing.expectError(Err.InvalidEscSeq, lex.lex());
+    try testing.expectError(error.InvalidEscSeq, lex.lex());
     lex.deinit();
 }
 test "lexer error Invalid Char" {
     isTest = true;
 
     var lex = Lexer.init(testing.allocator, "", "\'");
-    try testing.expectError(Err.InvalidChar, lex.lex());
+    try testing.expectError(error.InvalidChar, lex.lex());
     lex.deinit();
 
     lex = Lexer.init(testing.allocator, "", "''");
-    try testing.expectError(Err.InvalidChar, lex.lex());
+    try testing.expectError(error.InvalidChar, lex.lex());
     lex.deinit();
     lex = Lexer.init(testing.allocator, "", "'\n'");
-    try testing.expectError(Err.InvalidChar, lex.lex());
+    try testing.expectError(error.InvalidChar, lex.lex());
     lex.deinit();
 
     lex = Lexer.init(testing.allocator, "", "'ab'");
-    try testing.expectError(Err.InvalidChar, lex.lex());
+    try testing.expectError(error.InvalidChar, lex.lex());
     lex.deinit();
     lex = Lexer.init(testing.allocator, "", "'a");
-    try testing.expectError(Err.InvalidChar, lex.lex());
+    try testing.expectError(error.InvalidChar, lex.lex());
     lex.deinit();
 }
 

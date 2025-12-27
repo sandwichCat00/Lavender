@@ -1,5 +1,4 @@
 const std = @import("std");
-const Err = @import("errors.zig").LexError;
 
 pub const TokenKind = union(enum) {
     Identifier: []const u8,
@@ -108,7 +107,7 @@ pub fn checkSymbol(char: u8) bool {
 
 pub fn getSymbol(src: []const u8, idx: *usize) !Token {
     if (idx.* >= src.len)
-        return Err.Unknown;
+        return error.Unknown;
 
     const kind: TokenKind = switch (src[idx.*]) {
         '@' => .Declarative,
@@ -133,7 +132,7 @@ pub fn getSymbol(src: []const u8, idx: *usize) !Token {
         '/' => .DivOp,
         '%' => .ModOp,
 
-        else => return Err.InvalidChar,
+        else => return error.InvalidChar,
     };
 
     return .{ .kind = kind, .idx = idx.* };

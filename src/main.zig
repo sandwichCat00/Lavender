@@ -22,7 +22,7 @@ pub fn main() !void {
     const stats = try lex.toStatements(alloc);
     for (stats.items) |stat| {
         for (stat.items) |tok| {
-            std.debug.print("{s} ", .{try tok.toStr(alloc)});
+            std.debug.print("{s} ", .{tok.toStr(alloc)});
         }
         std.debug.print("\n", .{});
     }

@@ -1,5 +1,5 @@
 const std = @import("std");
-
+const DefCall = @import("ast.zig").DefCall;
 pub const TokenKind = union(enum) {
     Identifier: []const u8,
     IntLiteral: i64,
@@ -35,12 +35,66 @@ pub const TokenKind = union(enum) {
     EqlOp,
     AddOp,
     SubOp,
-    SignSubOp,
     MulOp,
     DivOp,
     ModOp,
 
+    SignSubOp,
     Unset,
+
+    DefCall: DefCall,
+
+    pub fn toStr(
+        self: @This(),
+        alloc: std.mem.Allocator,
+    ) []const u8 {
+        return switch (self) {
+            .Identifier => |x| alloc.dupe(u8, x) catch "error",
+            // .StrLiteral => |x| alloc.dupe(u8, x) catch "error",
+
+            // .Identifier => |x| std.fmt.allocPrint(alloc, "[IDNT: {s}]", .{x}) catch "error",
+            .StrLiteral => |x| std.fmt.allocPrint(alloc, "\"{s}\"", .{x}) catch "error",
+            .IntLiteral => |x| std.fmt.allocPrint(alloc, "{}", .{x}) catch "error",
+            .FloatLiteral => |x| std.fmt.allocPrint(alloc, "{}", .{x}) catch "error",
+            .CharLiteral => |x| std.fmt.allocPrint(alloc, "'{c}'", .{x}) catch "error",
+
+            .Import => alloc.dupe(u8, "import") catch "error",
+            .As => alloc.dupe(u8, "as") catch "error",
+            .Let => alloc.dupe(u8, "let") catch "error",
+            .Def => alloc.dupe(u8, "def") catch "error",
+            .Public => alloc.dupe(u8, "pub") catch "error",
+            .Return => alloc.dupe(u8, "return") catch "error",
+
+            .IntType => alloc.dupe(u8, "int") catch "error",
+            .StrType => alloc.dupe(u8, "str") catch "error",
+            .CharType => alloc.dupe(u8, "char") catch "error",
+            .FloatType => alloc.dupe(u8, "float") catch "error",
+
+            .Declarative => alloc.dupe(u8, "@") catch "error",
+            .MemberOp => alloc.dupe(u8, ".") catch "error",
+            .StatEnd => alloc.dupe(u8, ";") catch "error",
+            .TypeOf => alloc.dupe(u8, ":") catch "error",
+            .ParenOpen => alloc.dupe(u8, "(") catch "error",
+            .ParenClose => alloc.dupe(u8, ")") catch "error",
+            .BrackOpen => alloc.dupe(u8, "[") catch "error",
+            .BrackClose => alloc.dupe(u8, "]") catch "error",
+            .BraceOpen => alloc.dupe(u8, "{") catch "error",
+            .BraceClose => alloc.dupe(u8, "}") catch "error",
+
+            .Comma => alloc.dupe(u8, ",") catch "error",
+
+            .AddOp => alloc.dupe(u8, "+") catch "error",
+            .EqlOp => alloc.dupe(u8, "=") catch "error",
+            .SubOp => alloc.dupe(u8, "-") catch "error",
+            .SignSubOp => alloc.dupe(u8, "-") catch "error",
+            .MulOp => alloc.dupe(u8, "*") catch "error",
+            .DivOp => alloc.dupe(u8, "/") catch "error",
+            .ModOp => alloc.dupe(u8, "%") catch "error",
+
+            .DefCall => alloc.dupe(u8, "defCall") catch "error",
+            .Unset => alloc.dupe(u8, "<UNSET>") catch "error",
+        };
+    }
 
     pub fn prec(self: @This()) u8 {
         return switch (self) {
@@ -102,55 +156,8 @@ pub const Token = struct {
     idx: usize,
     kind: TokenKind,
 
-    pub fn toStr(
-        self: *const @This(),
-        alloc: std.mem.Allocator,
-    ) []const u8 {
-        return switch (self.kind) {
-            .Identifier => |x| alloc.dupe(u8, x) catch "error",
-            // .StrLiteral => |x| alloc.dupe(u8, x) catch "error",
-
-            // .Identifier => |x| std.fmt.allocPrint(alloc, "[IDNT: {s}]", .{x}) catch "error",
-            .StrLiteral => |x| std.fmt.allocPrint(alloc, "\"{s}\"", .{x}) catch "error",
-            .IntLiteral => |x| std.fmt.allocPrint(alloc, "{}", .{x}) catch "error",
-            .FloatLiteral => |x| std.fmt.allocPrint(alloc, "{}", .{x}) catch "error",
-            .CharLiteral => |x| std.fmt.allocPrint(alloc, "'{c}'", .{x}) catch "error",
-
-            .Import => alloc.dupe(u8, "import") catch "error",
-            .As => alloc.dupe(u8, "as") catch "error",
-            .Let => alloc.dupe(u8, "let") catch "error",
-            .Def => alloc.dupe(u8, "def") catch "error",
-            .Public => alloc.dupe(u8, "pub") catch "error",
-            .Return => alloc.dupe(u8, "return") catch "error",
-
-            .IntType => alloc.dupe(u8, "int") catch "error",
-            .StrType => alloc.dupe(u8, "str") catch "error",
-            .CharType => alloc.dupe(u8, "char") catch "error",
-            .FloatType => alloc.dupe(u8, "float") catch "error",
-
-            .Declarative => alloc.dupe(u8, "@") catch "error",
-            .MemberOp => alloc.dupe(u8, ".") catch "error",
-            .StatEnd => alloc.dupe(u8, ";") catch "error",
-            .TypeOf => alloc.dupe(u8, ":") catch "error",
-            .ParenOpen => alloc.dupe(u8, "(") catch "error",
-            .ParenClose => alloc.dupe(u8, ")") catch "error",
-            .BrackOpen => alloc.dupe(u8, "[") catch "error",
-            .BrackClose => alloc.dupe(u8, "]") catch "error",
-            .BraceOpen => alloc.dupe(u8, "{") catch "error",
-            .BraceClose => alloc.dupe(u8, "}") catch "error",
-
-            .Comma => alloc.dupe(u8, ",") catch "error",
-
-            .AddOp => alloc.dupe(u8, "+") catch "error",
-            .EqlOp => alloc.dupe(u8, "=") catch "error",
-            .SubOp => alloc.dupe(u8, "-") catch "error",
-            .SignSubOp => alloc.dupe(u8, "-") catch "error",
-            .MulOp => alloc.dupe(u8, "*") catch "error",
-            .DivOp => alloc.dupe(u8, "/") catch "error",
-            .ModOp => alloc.dupe(u8, "%") catch "error",
-
-            .Unset => alloc.dupe(u8, "<UNSET>") catch "error",
-        };
+    pub fn toStr(self: @This(), alloc: std.mem.Allocator) []const u8 {
+        return self.kind.toStr(alloc);
     }
 };
 

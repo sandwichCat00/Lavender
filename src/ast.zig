@@ -1,7 +1,30 @@
 const std = @import("std");
 const lexeme = @import("lexeme.zig");
 
-pub const Import = struct { path: std.ArrayList([]const u8), alias: []const u8 };
+pub const Import = struct {
+    path: std.ArrayList([]const u8),
+    alias: []const u8,
+};
+
+pub const DefCall = struct {
+    callee: []const u8,
+    parameters: std.ArrayList(AstNode),
+
+    pub fn print(self: @This(), alloc: std.mem.Allocator) void {
+        std.debug.print("{s}: ", .{self.callee});
+        for (self.parameters.items) |par| {
+            par.print(0, alloc);
+        }
+        std.debug.print("\n", .{});
+    }
+
+    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        for (self.parameters.items) |*par| {
+            par.deinit(alloc);
+        }
+        self.parameters.deinit(alloc);
+    }
+};
 
 pub const AstNode = struct {
     tok: lexeme.Token,
@@ -10,6 +33,17 @@ pub const AstNode = struct {
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         for (self.children.items) |*node| {
             node.deinit(alloc);
+        }
+        switch (self.tok.kind) {
+            .DefCall => |def| {
+                var par = def.parameters;
+                for (par.items) |*parr| {
+                    parr.deinit(alloc);
+                }
+
+                par.deinit(alloc);
+            },
+            else => {},
         }
         self.children.deinit(alloc);
     }

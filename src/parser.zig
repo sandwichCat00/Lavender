@@ -192,9 +192,9 @@ pub const Parser = struct {
         startIdx: usize,
         prevPrc: u8,
     ) !ast.AstNode {
-        if (startIdx >= ret.items.len)
-            return error.Invalid;
-
+        if (startIdx >= ret.items.len) {
+            return error.Unknown;
+        }
         var lhs = ret.items[startIdx];
         if (lhs.tok.kind == .ParenOpen) {
             _ = ret.orderedRemove(startIdx);
@@ -221,11 +221,14 @@ pub const Parser = struct {
             lhs = op;
         }
         if (!lhs.tok.kind.isLiteral() and
+            lhs.tok.kind != .DefCall and
             lhs.tok.kind != .Identifier and
             !(lhs.tok.kind.isBinOp() and lhs.children.items.len == 2) and
             !(lhs.tok.kind.isUniOp() and lhs.children.items.len == 1))
+        {
+            lhs.print(10, self.alloc);
             return error.InvalidTok;
-
+        }
         var idx = startIdx + 1;
 
         while (idx < ret.items.len) {
@@ -263,23 +266,87 @@ pub const Parser = struct {
         return lhs;
     }
 
-    pub fn parseExpression(self: *@This(), mod: *ast.Module) !ast.AstNode {
-        _ = mod;
+    pub fn parseDefCall(self: *@This()) !ast.DefCall {
+        const stat = self.statements.items[self.statIdx].items;
+        var defCall: ast.DefCall = .{ .callee = "", .parameters = .empty };
+        switch (stat[self.tokIdx].kind) {
+            .Identifier => |s| defCall.callee = s,
+            else => return error.Unknown,
+        }
+        self.tokIdx += 2;
 
+        if (self.tokIdx >= stat.len)
+            return error.EarlyEof;
+
+        while (self.tokIdx < stat.len) {
+            if (stat[self.tokIdx].kind == .ParenClose)
+                break;
+            const exp = try self.parseExpression(true);
+            if (self.tokIdx > stat.len or (self.tokIdx == stat.len and stat[self.tokIdx - 1].kind != .ParenClose))
+                return error.EarlyEof;
+            try defCall.parameters.append(self.alloc, exp);
+            if (self.tokIdx < stat.len and stat[self.tokIdx].kind == .Comma) {
+                self.tokIdx += 1;
+                if (self.tokIdx > stat.len)
+                    return error.EarlyEof;
+            }
+        }
+        return defCall;
+    }
+
+    pub fn parseExpression(self: *@This(), subExp: bool) error{
+        OutOfMemory,
+        Unknown,
+        EarlyEof,
+        MissingParenClose,
+        InvalidTok,
+        InvalidExpr,
+    }!ast.AstNode {
         var ret: std.ArrayList(ast.AstNode) = .empty;
         defer ret.deinit(self.alloc);
+        const stat = self.statements.items[self.statIdx].items;
+        const str = stat[self.tokIdx].toStr(self.alloc);
+        defer self.alloc.free(str);
+        var parenAmount: usize = 0;
+        while (self.tokIdx < stat.len) {
+            const tok = stat[self.tokIdx];
+            if (!(tok.kind == .Identifier or //
+                tok.kind.isLiteral() or
+                tok.kind.isBinOp() or
+                tok.kind.isUnmodifiedUniOp() or
+                tok.kind == .ParenOpen or
+                tok.kind == .ParenClose))
+            {
+                break;
+            }
+            if (subExp and tok.kind == .ParenClose and parenAmount == 0) {
+                break;
+            } else if (subExp and tok.kind == .ParenClose) {
+                parenAmount -= 1;
+            } else if (subExp and tok.kind == .ParenOpen) {
+                parenAmount += 1;
+            }
 
-        for (self.statements.items[self.statIdx].items) |tok| {
-            try ret.append(self.alloc, .{
+            if (self.tokIdx < stat.len - 1 and stat[self.tokIdx].kind == .Identifier and stat[self.tokIdx + 1].kind == .ParenOpen) {
+                const tokIdx = self.tokIdx;
+                const expTok: lexeme.Token = .{ .idx = tokIdx, .kind = .{ .DefCall = try self.parseDefCall() } };
+                try ret.append(self.alloc, .{ .tok = expTok, .children = .empty });
+            } else try ret.append(self.alloc, .{
                 .tok = tok,
                 .children = .empty,
             });
+            self.tokIdx += 1;
         }
 
         const root = try self.pattParse(&ret, 0, 0);
-
-        if (ret.items.len != 1)
-            return error.InvalidExpression;
+        if ((!subExp and ret.items.len > 1) or (subExp and (ret.items.len > 2 or
+            (ret.items.len == 2 and ret.items[1].tok.kind != .ParenClose))))
+        {
+            if (subExp) {
+                std.debug.print("{d} {s}", .{ ret.items.len, ret.items[1].tok.toStr(self.alloc) });
+            }
+            return error.InvalidExpr;
+        }
 
         return root;
     }
@@ -453,24 +520,6 @@ test "parse import statements" {
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
 
     var mod = try parser.parse();
-    // for (mod.imports.items) |imp| {
-    //     for (imp.path.items) |pat| {
-    //         std.debug.print("{s} ", .{pat});
-    //     }
-    //     std.debug.print("-> {s}\n", .{imp.alias});
-    // }
-    // for (mod.functions.items) |defDecl| {
-    //     const name = defDecl.name.toStr(testing.allocator);
-    //     defer testing.allocator.free(name);
-    //     std.debug.print("fnName: {s}\n", .{name});
-    //     for (defDecl.parameters.items) |val| {
-    //         const id = val.identifier.toStr(testing.allocator);
-    //         const typ = val.type.toStr(testing.allocator);
-    //         defer testing.allocator.free(id);
-    //         defer testing.allocator.free(typ);
-    //         std.debug.print("--Para: {s} {s}\n", .{ id, typ });
-    //     }
-    // }
 
     mod.deinit(testing.allocator);
 }
@@ -497,7 +546,36 @@ test "parse expression" {
     }
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
 
-    var mod = try parser.parseExpression(undefined);
+    var mod = try parser.parseExpression(false);
+    // mod.print(0, testing.allocator);
+    mod.deinit(testing.allocator);
+}
+
+test "parse function call" {
+    var lex = @import("lexer.zig").Lexer.init(
+        testing.allocator,
+        "",
+        "print(30+10,10) + 10 + x()",
+    );
+    defer lex.deinit();
+
+    try lex.lex();
+    var stats = try lex.toStatements(testing.allocator);
+
+    defer {
+        for (stats.items) |*stat| {
+            for (stat.items) |tok| {
+                switch (tok.kind) {
+                    .StrLiteral => |s| testing.allocator.free(s),
+                    else => {},
+                }
+            }
+            stat.*.deinit(testing.allocator);
+        }
+        stats.deinit(testing.allocator);
+    }
+    var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
+    var mod = try parser.parseExpression(false);
     mod.print(0, testing.allocator);
     mod.deinit(testing.allocator);
 }

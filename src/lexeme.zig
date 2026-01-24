@@ -91,7 +91,7 @@ pub const TokenKind = union(enum) {
             .DivOp => alloc.dupe(u8, "/") catch "error",
             .ModOp => alloc.dupe(u8, "%") catch "error",
 
-            .DefCall => alloc.dupe(u8, "defCall") catch "error",
+            .DefCall => |x| std.fmt.allocPrint(alloc, "{s}()", .{x.callee}) catch "error",
             .Unset => alloc.dupe(u8, "<UNSET>") catch "error",
         };
     }

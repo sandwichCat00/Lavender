@@ -75,6 +75,34 @@ pub const DefDecl = struct {
 pub const Module = struct {
     imports: std.ArrayList(Import),
     functions: std.ArrayList(DefDecl),
+
+    pub fn print(self: *@This(), alloc: std.mem.Allocator) void {
+        for (self.imports.items) |import| {
+            for (import.path.items) |str| {
+                std.debug.print("{s} ", .{str});
+            }
+            std.debug.print("-> {s}\n", .{import.alias});
+        }
+
+        for (self.functions.items) |fun| {
+            const name = fun.name.toStr(alloc);
+            defer alloc.free(name);
+            std.debug.print("{s}: ", .{name});
+            for (fun.parameters.items) |par| {
+                const idf = par.identifier.toStr(alloc);
+                defer alloc.free(idf);
+                const typ = par.type.toStr(alloc);
+                defer alloc.free(typ);
+                std.debug.print("[{s}:{s}] ", .{ idf, typ });
+            }
+            std.debug.print("\n--\n", .{});
+            for (fun.statements.items) |stat| {
+                stat.print(0, alloc);
+                std.debug.print("--\n", .{});
+            }
+        }
+    }
+
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         for (self.imports.items) |*imp| {
             imp.path.deinit(alloc);
@@ -82,6 +110,9 @@ pub const Module = struct {
         self.imports.deinit(alloc);
         for (self.functions.items) |*fun| {
             fun.parameters.deinit(alloc);
+            for (fun.statements.items) |*stats| {
+                stats.deinit(alloc);
+            }
             fun.statements.deinit(alloc);
         }
         self.functions.deinit(alloc);

@@ -182,8 +182,9 @@ pub const Parser = struct {
             );
         }
         self.statIdx += 1;
+        try self.parseStatements(&defDecl);
         try mod.functions.append(self.alloc, defDecl);
-        try self.parseStatements(mod);
+        // std.debug.print("{s}\n", .{defDecl.name.toStr(self.alloc)});
     }
 
     fn pattParse(
@@ -226,7 +227,7 @@ pub const Parser = struct {
             !(lhs.tok.kind.isBinOp() and lhs.children.items.len == 2) and
             !(lhs.tok.kind.isUniOp() and lhs.children.items.len == 1))
         {
-            lhs.print(10, self.alloc);
+            // lhs.print(10, self.alloc);
             return error.InvalidTok;
         }
         var idx = startIdx + 1;
@@ -342,21 +343,32 @@ pub const Parser = struct {
         if ((!subExp and ret.items.len > 1) or (subExp and (ret.items.len > 2 or
             (ret.items.len == 2 and ret.items[1].tok.kind != .ParenClose))))
         {
-            if (subExp) {
-                std.debug.print("{d} {s}", .{ ret.items.len, ret.items[1].tok.toStr(self.alloc) });
-            }
             return error.InvalidExpr;
         }
 
         return root;
     }
 
-    pub fn parseStatements(self: *@This(), mod: *ast.Module) !void {
-        _ = mod;
+    pub fn parseStatements(self: *@This(), def: *ast.DefDecl) !void {
+        self.statIdx += 1;
         while (self.statIdx < self.statements.items.len) {
             if (self.statements.items[self.statIdx].items[0].kind == .BraceClose) {
-                self.statIdx += 1;
                 return;
+            }
+            self.tokIdx = 0;
+            const stat = self.statements.items;
+            const tok = self.statements.items[self.statIdx].items[0];
+            if (tok.kind == .Return) {
+                self.tokIdx += 1;
+                if (self.tokIdx >= stat.len) {
+                    return error.EarlyEof;
+                }
+                var ret: ast.AstNode = .{ .tok = tok, .children = .empty };
+                try ret.children.append(self.alloc, try self.parseExpression(false));
+                try def.statements.append(self.alloc, ret);
+            } else {
+                const x = try self.parseExpression(false);
+                try def.statements.append(self.alloc, x);
             }
             self.statIdx += 1;
         }
@@ -498,7 +510,12 @@ test "parse import statements" {
     var lex = @import("lexer.zig").Lexer.init(testing.allocator, "",
         \\@import std;
         \\@import std.math as math;
-        \\ def add(a: int, b: int) {}
+        \\def add(a: int, b: int) {
+        \\ return a + b;
+        \\}
+        \\def main() {
+        \\ print(add(5,6));
+        \\}
     );
     defer lex.deinit();
 
@@ -520,7 +537,7 @@ test "parse import statements" {
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
 
     var mod = try parser.parse();
-
+    mod.print(testing.allocator);
     mod.deinit(testing.allocator);
 }
 
@@ -576,6 +593,6 @@ test "parse function call" {
     }
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
     var mod = try parser.parseExpression(false);
-    mod.print(0, testing.allocator);
+    // mod.print(0, testing.allocator);
     mod.deinit(testing.allocator);
 }

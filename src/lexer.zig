@@ -8,6 +8,7 @@ pub const Lexer = struct {
     src: []const u8,
     fName: []const u8,
     tokens: std.ArrayList(lexeme.Token) = .empty,
+    stats: std.ArrayList(std.ArrayList(lexeme.Token)) = .empty,
     alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator, fName: []const u8, src: []const u8) @This() {
@@ -19,13 +20,27 @@ pub const Lexer = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        for (self.tokens.items) |tok| {
-            switch (tok.kind) {
-                .StrLiteral => |s| self.alloc.free(s),
-                else => {},
+        if (self.stats.items.len == 0 and self.tokens.items.len != 0) {
+            for (self.tokens.items) |tok| {
+                switch (tok.kind) {
+                    .StrLiteral => |s| self.alloc.free(s),
+                    // .Identifier => |s| self.alloc.free(s),
+                    else => {},
+                }
             }
+            self.tokens.deinit(self.alloc);
+        } else {
+            for (self.stats.items) |*stat| {
+                for (stat.items) |tok| {
+                    switch (tok.kind) {
+                        .StrLiteral => |s| self.alloc.free(s),
+                        else => {},
+                    }
+                }
+                stat.deinit(self.alloc);
+            }
+            self.stats.deinit(self.alloc);
         }
-        self.tokens.deinit(self.alloc);
     }
 
     pub fn lex(self: *@This()) !void {
@@ -182,18 +197,17 @@ pub const Lexer = struct {
     }
 
     pub fn toStatements(self: *@This(), alloc: std.mem.Allocator) error{OutOfMemory}!std.ArrayList(std.ArrayList(lexeme.Token)) {
-        var stats: std.ArrayList(std.ArrayList(lexeme.Token)) = .empty;
         var idx: usize = 0;
         const tokens = self.tokens.items;
         if (tokens.len == 0)
-            return stats;
+            return self.stats;
 
         while (idx < tokens.len) {
             var stat: std.ArrayList(lexeme.Token) = .empty;
             while (idx < tokens.len and tokens[idx].kind != .StatEnd) {
                 if (tokens[idx].kind == .BraceOpen or tokens[idx].kind == .BraceClose) {
                     if (stat.items.len != 0)
-                        try stats.append(alloc, stat);
+                        try self.stats.append(alloc, stat);
                     stat = .empty;
                     try stat.append(alloc, tokens[idx]);
                     break;
@@ -212,10 +226,11 @@ pub const Lexer = struct {
                 idx += 1;
             }
             if (stat.items.len != 0)
-                try stats.append(alloc, stat);
+                try self.stats.append(alloc, stat);
             idx += 1;
         }
-        return stats;
+        self.tokens.deinit(self.alloc);
+        return self.stats;
     }
 };
 
@@ -340,7 +355,7 @@ test "lexer keyword pub" {
 test "lexer keywords" {
     isTest = true;
     const kinds = [_]lexeme.TokenKind{ .{ .Identifier = "a" }, .{ .FloatLiteral = 1.1 }, .{ .Identifier = "defx" }, .Let, .Def, .Public, .Import };
-    var lex = Lexer.init(testing.allocator, "", "a 1.1 defx let def pub import");
+    var lex = Lexer.init(testing.allocator, "", "a 1.1 defx let def    pub import    ");
     defer lex.deinit();
 
     try lex.lex();
@@ -497,20 +512,14 @@ test "toStatements text" {
         \\}
     );
     try lex.lex();
-    var stats = try lex.toStatements(testing.allocator);
-    lex.deinit();
+    defer lex.deinit();
+    const stats = try lex.toStatements(testing.allocator);
 
     try testing.expect(stats.items.len == expectedStats.len);
-    for (stats.items, 0..) |*stat, idx| {
-        try testing.expect(stat.*.items.len == expectedStats[idx].len);
-        for (stat.items, 0..) |*tok, idy| {
-            try matchX(tok.*, expectedStats[idx][idy].kind);
-            switch (tok.*.kind) {
-                .StrLiteral => |s| testing.allocator.free(s),
-                else => {},
-            }
+    for (stats.items, 0..) |stat, idx| {
+        try testing.expect(stat.items.len == expectedStats[idx].len);
+        for (stat.items, 0..) |tok, idy| {
+            try matchX(tok, expectedStats[idx][idy].kind);
         }
-        stat.*.deinit(testing.allocator);
     }
-    stats.deinit(testing.allocator);
 }

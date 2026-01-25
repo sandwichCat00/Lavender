@@ -18,6 +18,8 @@ pub fn main() !void {
     };
 
     var lex = lexer.Lexer.init(alloc, args.fileName, src);
+    defer lex.deinit();
+
     try lex.lex();
     const stats = try lex.toStatements(alloc);
     for (stats.items) |stat| {
@@ -26,9 +28,6 @@ pub fn main() !void {
         }
         std.debug.print("\n", .{});
     }
-    // for (lex.tokens.items) |t| {
-    //     std.debug.print("{s}\n", .{try t.toStr(alloc)});
-    // }
 }
 
 test "main test" {

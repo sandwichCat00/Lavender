@@ -1,0 +1,11 @@
+def add(a:int, b:int) {
+    return b+ a; 
+}
+
+def main() {
+    let x = toInt(input("Enter No: "));
+    let y = toInt(input("Enter No: "));
+    println("add: {}", add(x,y));
+
+    return 0;
+}

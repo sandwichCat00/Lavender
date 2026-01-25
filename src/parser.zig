@@ -520,20 +520,9 @@ test "parse import statements" {
     defer lex.deinit();
 
     try lex.lex();
-    var stats = try lex.toStatements(testing.allocator);
 
-    defer {
-        for (stats.items) |*stat| {
-            for (stat.items) |tok| {
-                switch (tok.kind) {
-                    .StrLiteral => |s| testing.allocator.free(s),
-                    else => {},
-                }
-            }
-            stat.*.deinit(testing.allocator);
-        }
-        stats.deinit(testing.allocator);
-    }
+    const stats = try lex.toStatements(testing.allocator);
+
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
 
     var mod = try parser.parse();
@@ -547,20 +536,7 @@ test "parse expression" {
     defer lex.deinit();
 
     try lex.lex();
-    var stats = try lex.toStatements(testing.allocator);
-
-    defer {
-        for (stats.items) |*stat| {
-            for (stat.items) |tok| {
-                switch (tok.kind) {
-                    .StrLiteral => |s| testing.allocator.free(s),
-                    else => {},
-                }
-            }
-            stat.*.deinit(testing.allocator);
-        }
-        stats.deinit(testing.allocator);
-    }
+    const stats = try lex.toStatements(testing.allocator);
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
 
     var mod = try parser.parseExpression(false);
@@ -577,20 +553,8 @@ test "parse function call" {
     defer lex.deinit();
 
     try lex.lex();
-    var stats = try lex.toStatements(testing.allocator);
+    const stats = try lex.toStatements(testing.allocator);
 
-    defer {
-        for (stats.items) |*stat| {
-            for (stat.items) |tok| {
-                switch (tok.kind) {
-                    .StrLiteral => |s| testing.allocator.free(s),
-                    else => {},
-                }
-            }
-            stat.*.deinit(testing.allocator);
-        }
-        stats.deinit(testing.allocator);
-    }
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
     var mod = try parser.parseExpression(false);
     // mod.print(0, testing.allocator);

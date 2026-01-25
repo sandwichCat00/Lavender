@@ -194,7 +194,13 @@ pub const Parser = struct {
         prevPrc: u8,
     ) !ast.AstNode {
         if (startIdx >= ret.items.len) {
-            return error.Unknown;
+            err(
+                self.fName,
+                self.src,
+                0,
+                "Unknown error occured",
+                .{},
+            );
         }
         var lhs = ret.items[startIdx];
         if (lhs.tok.kind == .ParenOpen) {
@@ -204,7 +210,13 @@ pub const Parser = struct {
 
             if (startIdx + 1 >= ret.items.len or
                 ret.items[startIdx + 1].tok.kind != .ParenClose)
-                return error.MissingParenClose;
+                err(
+                    self.fName,
+                    self.src,
+                    ret.items[startIdx + 1].tok.idx,
+                    "Parenthesis is not closed properly",
+                    .{},
+                );
 
             _ = ret.orderedRemove(startIdx);
         }
@@ -213,7 +225,16 @@ pub const Parser = struct {
 
             op.tok.kind = switch (op.tok.kind) {
                 .SubOp => .SignSubOp,
-                else => return error.Unknown,
+                else => {
+                    err(
+                        self.fName,
+                        self.src,
+                        0,
+                        "Unknown error occured",
+                        .{},
+                    );
+                    return error.Unknown;
+                },
             };
 
             const operand = try self.pattParse(ret, startIdx, 255);
@@ -227,8 +248,13 @@ pub const Parser = struct {
             !(lhs.tok.kind.isBinOp() and lhs.children.items.len == 2) and
             !(lhs.tok.kind.isUniOp() and lhs.children.items.len == 1))
         {
-            // lhs.print(10, self.alloc);
-            return error.InvalidTok;
+            err(
+                self.fName,
+                self.src,
+                0,
+                "Invalid token found {s}",
+                .{lhs.tok.toStr(self.alloc)},
+            );
         }
         var idx = startIdx + 1;
 
@@ -244,7 +270,13 @@ pub const Parser = struct {
                 break;
 
             if (idx + 1 >= ret.items.len)
-                return error.InvalidTok;
+                err(
+                    self.fName,
+                    self.src,
+                    0,
+                    "Unexpected end of statement at {s}",
+                    .{op.tok.toStr(self.alloc)},
+                );
 
             const rhs = try self.pattParse(ret, idx + 1, prc);
 
@@ -278,24 +310,52 @@ pub const Parser = struct {
         };
         switch (stat[self.tokIdx].kind) {
             .Identifier => |s| defCall.tok.kind = .{ .DefCall = try self.alloc.dupe(u8, s) },
-            else => return error.Unknown,
+            else => {
+                err(
+                    self.fName,
+                    self.src,
+                    0,
+                    "Unknown error occured",
+                    .{},
+                );
+                return error.Unknown;
+            },
         }
         self.tokIdx += 2;
 
         if (self.tokIdx >= stat.len)
-            return error.EarlyEof;
+            err(
+                self.fName,
+                self.src,
+                stat[self.tokIdx - 2].idx,
+                "Early end of statement",
+                .{},
+            );
 
         while (self.tokIdx < stat.len) {
             if (stat[self.tokIdx].kind == .ParenClose)
                 break;
             const exp = try self.parseExpression(true);
-            if (self.tokIdx > stat.len or (self.tokIdx == stat.len and stat[self.tokIdx - 1].kind != .ParenClose))
-                return error.EarlyEof;
+            if (self.tokIdx > stat.len or (self.tokIdx == stat.len and
+                stat[self.tokIdx - 1].kind != .ParenClose))
+                err(
+                    self.fName,
+                    self.src,
+                    stat[self.tokIdx - 1].idx,
+                    "Early end of statement",
+                    .{},
+                );
             try defCall.children.append(self.alloc, exp);
             if (self.tokIdx < stat.len and stat[self.tokIdx].kind == .Comma) {
                 self.tokIdx += 1;
                 if (self.tokIdx > stat.len)
-                    return error.EarlyEof;
+                    err(
+                        self.fName,
+                        self.src,
+                        stat[self.tokIdx - 1].idx,
+                        "Early end of statement",
+                        .{},
+                    );
             }
         }
         return defCall;
@@ -326,8 +386,13 @@ pub const Parser = struct {
                 tok.kind == .ParenOpen or
                 tok.kind == .ParenClose))
             {
-                std.debug.print("{s}\n", .{tok.toStr(self.alloc)});
-                return error.InvalidTok;
+                err(
+                    self.fName,
+                    self.src,
+                    tok.idx,
+                    "Invalid token found {s}",
+                    .{tok.toStr(self.alloc)},
+                );
             }
             if (subExp and tok.kind == .ParenClose and parenAmount == 0) {
                 break;
@@ -351,7 +416,13 @@ pub const Parser = struct {
         if ((!subExp and ret.items.len > 1) or (subExp and (ret.items.len > 2 or
             (ret.items.len == 2 and ret.items[1].tok.kind != .ParenClose))))
         {
-            return error.InvalidExpr;
+            err(
+                self.fName,
+                self.src,
+                stat[self.tokIdx].idx,
+                "Invalid expression token {s}",
+                .{stat[self.tokIdx].toStr(self.alloc)},
+            );
         }
 
         return root;
@@ -370,19 +441,37 @@ pub const Parser = struct {
             if (tok.kind == .Return) {
                 self.tokIdx += 1;
                 if (self.tokIdx >= stat.len) {
-                    return error.EarlyEof;
+                    err(
+                        self.fName,
+                        self.src,
+                        tok.idx,
+                        "Early end of statement, {s}",
+                        .{tok.toStr(self.alloc)},
+                    );
                 }
                 try stats.append(self.alloc, .{ .Ret = try self.parseExpression(false) });
             } else if (tok.kind == .Let) {
                 self.tokIdx += 1;
                 if (self.tokIdx >= stat.len) {
-                    return error.EarlyEof;
+                    err(
+                        self.fName,
+                        self.src,
+                        tok.idx,
+                        "Early end of statement, {s}",
+                        .{tok.toStr(self.alloc)},
+                    );
                 }
                 try stats.append(self.alloc, .{ .Let = try self.parseExpression(false) });
             } else if (tok.kind == .If) {
                 self.tokIdx += 1;
                 if (self.tokIdx >= stat.len) {
-                    return error.EarlyEof;
+                    err(
+                        self.fName,
+                        self.src,
+                        tok.idx,
+                        "Early end of statement, {s}",
+                        .{tok.toStr(self.alloc)},
+                    );
                 }
                 try stats.append(
                     self.alloc,
@@ -395,7 +484,13 @@ pub const Parser = struct {
                                 if (self.statements.items[self.statIdx + 1].items[0].kind == .Else) {
                                     self.statIdx += 2;
                                     if (self.statIdx >= self.statements.items.len) {
-                                        return error.EarlyEof;
+                                        err(
+                                            self.fName,
+                                            self.src,
+                                            self.statements.items[self.statIdx + 1].items[0].idx,
+                                            "Early end of statement, {s}",
+                                            .{self.statements.items[self.statIdx + 1].items[0].toStr(self.alloc)},
+                                        );
                                     }
                                     break :ifEls try self.parseStatements();
                                 }
@@ -407,7 +502,13 @@ pub const Parser = struct {
             } else if (tok.kind == .While) {
                 self.tokIdx += 1;
                 if (self.tokIdx >= stat.len) {
-                    return error.EarlyEof;
+                    err(
+                        self.fName,
+                        self.src,
+                        tok.idx,
+                        "Early end of statement, {s}",
+                        .{tok.toStr(self.alloc)},
+                    );
                 }
                 try stats.append(
                     self.alloc,
@@ -423,7 +524,13 @@ pub const Parser = struct {
                                     if (self.statements.items[self.statIdx + 1].items[0].kind == .Else) {
                                         self.statIdx += 2;
                                         if (self.statIdx >= self.statements.items.len) {
-                                            return error.EarlyEof;
+                                            err(
+                                                self.fName,
+                                                self.src,
+                                                self.statements.items[self.statIdx + 1].items[0].idx,
+                                                "Early end of statement, {s}",
+                                                .{self.statements.items[self.statIdx + 1].items[0].toStr(self.alloc)},
+                                            );
                                         }
                                         break :whileEls try self.parseStatements();
                                     }
@@ -435,7 +542,13 @@ pub const Parser = struct {
                 );
             } else if (tok.kind == .Break) {
                 if (stat.len != 1) {
-                    return error.InvalidTok;
+                    err(
+                        self.fName,
+                        self.src,
+                        stat[1].idx,
+                        "Invalid token found, {s}",
+                        .{stat[1].toStr(self.alloc)},
+                    );
                 }
                 try stats.append(self.alloc, .{ .Break = tok });
             } else {
@@ -444,7 +557,15 @@ pub const Parser = struct {
             }
             self.statIdx += 1;
         }
-        std.debug.print("{d} {d}", .{ self.statIdx, self.statements.items.len });
+        const stat = self.statements.items[self.statements.items.len - 1].items;
+        err(
+            self.fName,
+            self.src,
+            stat[stat.len - 1].idx,
+            "Early end of module, {s}",
+            .{stat[stat.len - 1].toStr(self.alloc)},
+        );
+
         return error.ExpectedBrace;
     }
 

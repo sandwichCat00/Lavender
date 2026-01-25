@@ -1,11 +1,13 @@
 const std = @import("std");
-const DefCall = @import("ast.zig").DefCall;
+const ast = @import("ast.zig");
 pub const TokenKind = union(enum) {
     Identifier: []const u8,
     IntLiteral: i64,
     FloatLiteral: f64,
     CharLiteral: u8,
     StrLiteral: []const u8,
+    True,
+    False,
 
     Import,
     As,
@@ -13,8 +15,13 @@ pub const TokenKind = union(enum) {
     Public,
     Let,
     Return,
+    If,
+    Else,
+    While,
+    Break,
 
     IntType,
+    BoolType,
     FloatType,
     StrType,
     CharType,
@@ -33,16 +40,27 @@ pub const TokenKind = union(enum) {
     Comma,
 
     EqlOp,
+
+    AddEqlOp,
+    SubEqlOp,
+    MulEqlOp,
+    DivEqlOp,
+    ModEqlOp,
+
     AddOp,
     SubOp,
     MulOp,
     DivOp,
     ModOp,
 
+    IsEqlOp,
+    IsGrterOp,
+    IsLessOp,
+
     SignSubOp,
     Unset,
 
-    DefCall: DefCall,
+    DefCall: []const u8,
 
     pub fn toStr(
         self: @This(),
@@ -50,9 +68,6 @@ pub const TokenKind = union(enum) {
     ) []const u8 {
         return switch (self) {
             .Identifier => |x| alloc.dupe(u8, x) catch "error",
-            // .StrLiteral => |x| alloc.dupe(u8, x) catch "error",
-
-            // .Identifier => |x| std.fmt.allocPrint(alloc, "[IDNT: {s}]", .{x}) catch "error",
             .StrLiteral => |x| std.fmt.allocPrint(alloc, "\"{s}\"", .{x}) catch "error",
             .IntLiteral => |x| std.fmt.allocPrint(alloc, "{}", .{x}) catch "error",
             .FloatLiteral => |x| std.fmt.allocPrint(alloc, "{}", .{x}) catch "error",
@@ -64,11 +79,18 @@ pub const TokenKind = union(enum) {
             .Def => alloc.dupe(u8, "def") catch "error",
             .Public => alloc.dupe(u8, "pub") catch "error",
             .Return => alloc.dupe(u8, "return") catch "error",
+            .If => alloc.dupe(u8, "if") catch "error",
+            .Else => alloc.dupe(u8, "else") catch "error",
+            .While => alloc.dupe(u8, "while") catch "error",
+            .Break => alloc.dupe(u8, "break") catch "error",
+            .True => alloc.dupe(u8, "true") catch "error",
+            .False => alloc.dupe(u8, "false") catch "error",
 
             .IntType => alloc.dupe(u8, "int") catch "error",
             .StrType => alloc.dupe(u8, "str") catch "error",
             .CharType => alloc.dupe(u8, "char") catch "error",
             .FloatType => alloc.dupe(u8, "float") catch "error",
+            .BoolType => alloc.dupe(u8, "bool") catch "error",
 
             .Declarative => alloc.dupe(u8, "@") catch "error",
             .MemberOp => alloc.dupe(u8, ".") catch "error",
@@ -83,6 +105,12 @@ pub const TokenKind = union(enum) {
 
             .Comma => alloc.dupe(u8, ",") catch "error",
 
+            .AddEqlOp => alloc.dupe(u8, "+=") catch "error",
+            .SubEqlOp => alloc.dupe(u8, "-=") catch "error",
+            .MulEqlOp => alloc.dupe(u8, "*=") catch "error",
+            .DivEqlOp => alloc.dupe(u8, "/=") catch "error",
+            .ModEqlOp => alloc.dupe(u8, "%=") catch "error",
+
             .AddOp => alloc.dupe(u8, "+") catch "error",
             .EqlOp => alloc.dupe(u8, "=") catch "error",
             .SubOp => alloc.dupe(u8, "-") catch "error",
@@ -91,15 +119,21 @@ pub const TokenKind = union(enum) {
             .DivOp => alloc.dupe(u8, "/") catch "error",
             .ModOp => alloc.dupe(u8, "%") catch "error",
 
-            .DefCall => |x| std.fmt.allocPrint(alloc, "{s}()", .{x.callee}) catch "error",
+            .IsEqlOp => alloc.dupe(u8, "==") catch "error",
+            .IsGrterOp => alloc.dupe(u8, ">") catch "error",
+            .IsLessOp => alloc.dupe(u8, "<") catch "error",
+
+            .DefCall => |x| std.fmt.allocPrint(alloc, "{s}()", .{x}) catch "error",
             .Unset => alloc.dupe(u8, "<UNSET>") catch "error",
         };
     }
 
     pub fn prec(self: @This()) u8 {
         return switch (self) {
-            .AddOp, .SubOp => 1,
-            .MulOp, .DivOp, .ModOp => 2,
+            .EqlOp, .SubEqlOp, .AddEqlOp, .MulEqlOp, .DivEqlOp, .ModEqlOp => 1,
+            .IsEqlOp, .IsGrterOp, .IsLessOp => 4,
+            .AddOp, .SubOp => 5,
+            .MulOp, .DivOp, .ModOp => 10,
             else => 0,
         };
     }
@@ -110,6 +144,8 @@ pub const TokenKind = union(enum) {
             .FloatLiteral,
             .StrLiteral,
             .CharLiteral,
+            .False,
+            .True,
             => true,
             else => false,
         };
@@ -130,13 +166,9 @@ pub const TokenKind = union(enum) {
     }
     pub fn isBinOp(self: @This()) bool {
         return switch (self) {
-            .EqlOp,
-            .AddOp,
-            .SubOp,
-            .MulOp,
-            .DivOp,
-            .ModOp,
-            => true,
+            .EqlOp, .AddEqlOp, .SubEqlOp, .MulEqlOp, .DivEqlOp, .ModEqlOp => true,
+            .AddOp, .SubOp, .MulOp, .DivOp, .ModOp => true,
+            .IsEqlOp, .IsGrterOp, .IsLessOp => true,
             else => false,
         };
     }
@@ -146,6 +178,7 @@ pub const TokenKind = union(enum) {
             .FloatType,
             .StrType,
             .CharType,
+            .BoolType,
             => true,
             else => false,
         };
@@ -159,12 +192,30 @@ pub const Token = struct {
     pub fn toStr(self: @This(), alloc: std.mem.Allocator) []const u8 {
         return self.kind.toStr(alloc);
     }
+
+    pub fn toOwned(self: @This(), alloc: std.mem.Allocator) !@This() {
+        var tok = self;
+        switch (tok.kind) {
+            .StrLiteral => |s| tok.kind = .{ .StrLiteral = try alloc.dupe(u8, s) },
+            else => {},
+        }
+        return tok;
+    }
+
+    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        switch (self.kind) {
+            .StrLiteral => |s| alloc.free(s),
+            .DefCall => |s| alloc.free(s),
+            else => {},
+        }
+    }
 };
 
 pub fn checkSymbol(char: u8) bool {
     switch (char) {
         '@', '=', '.', ',', ':', ';', '(', ')', '{', '}' => return true,
         '+', '-', '*', '/', '%' => return true,
+        '>', '<' => return true,
         else => return false,
     }
 }
@@ -188,13 +239,52 @@ pub fn getSymbol(src: []const u8, idx: *usize) !Token {
         '{' => .BraceOpen,
         '}' => .BraceClose,
 
-        '=' => .EqlOp,
+        '+' => lp: {
+            if (idx.* < src.len - 1 and src[idx.* + 1] == '=') {
+                idx.* += 1;
+                return .{ .kind = .AddEqlOp, .idx = idx.* - 1 };
+            }
+            break :lp .AddOp;
+        },
+        '-' => lp: {
+            if (idx.* < src.len - 1 and src[idx.* + 1] == '=') {
+                idx.* += 1;
+                return .{ .kind = .SubEqlOp, .idx = idx.* - 1 };
+            }
+            break :lp .SubOp;
+        },
+        '*' => lp: {
+            if (idx.* < src.len - 1 and src[idx.* + 1] == '=') {
+                idx.* += 1;
+                return .{ .kind = .MulEqlOp, .idx = idx.* - 1 };
+            }
+            break :lp .MulOp;
+        },
 
-        '+' => .AddOp,
-        '-' => .SubOp,
-        '*' => .MulOp,
-        '/' => .DivOp,
-        '%' => .ModOp,
+        '/' => lp: {
+            if (idx.* < src.len - 1 and src[idx.* + 1] == '=') {
+                idx.* += 1;
+                return .{ .kind = .DivEqlOp, .idx = idx.* - 1 };
+            }
+            break :lp .DivOp;
+        },
+        '%' => lp: {
+            if (idx.* < src.len - 1 and src[idx.* + 1] == '=') {
+                idx.* += 1;
+                return .{ .kind = .ModEqlOp, .idx = idx.* - 1 };
+            }
+            break :lp .ModOp;
+        },
+
+        '=' => lp: {
+            if (idx.* < src.len and src[idx.* + 1] == '=') {
+                idx.* += 1;
+                return .{ .kind = .IsEqlOp, .idx = idx.* - 1 };
+            }
+            break :lp .EqlOp;
+        },
+        '>' => .IsGrterOp,
+        '<' => .IsLessOp,
 
         else => return error.InvalidChar,
     };
@@ -221,6 +311,19 @@ pub fn getTextType(idx: usize, txt: []const u8) !Token {
         return .{ .idx = idx, .kind = .Let };
     if (std.mem.eql(u8, txt, "return"))
         return .{ .idx = idx, .kind = .Return };
+
+    if (std.mem.eql(u8, txt, "if"))
+        return .{ .idx = idx, .kind = .If };
+    if (std.mem.eql(u8, txt, "else"))
+        return .{ .idx = idx, .kind = .Else };
+    if (std.mem.eql(u8, txt, "while"))
+        return .{ .idx = idx, .kind = .While };
+    if (std.mem.eql(u8, txt, "break"))
+        return .{ .idx = idx, .kind = .Break };
+    if (std.mem.eql(u8, txt, "true"))
+        return .{ .idx = idx, .kind = .True };
+    if (std.mem.eql(u8, txt, "false"))
+        return .{ .idx = idx, .kind = .False };
 
     return .{ .idx = idx, .kind = .{ .Identifier = txt } };
 }

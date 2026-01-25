@@ -6,26 +6,6 @@ pub const Import = struct {
     alias: []const u8,
 };
 
-pub const DefCall = struct {
-    callee: []const u8,
-    parameters: std.ArrayList(AstNode),
-
-    pub fn print(self: @This(), alloc: std.mem.Allocator) void {
-        std.debug.print("{s}: ", .{self.callee});
-        for (self.parameters.items) |par| {
-            par.print(0, alloc);
-        }
-        std.debug.print("\n", .{});
-    }
-
-    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        for (self.parameters.items) |*par| {
-            par.deinit(alloc);
-        }
-        self.parameters.deinit(alloc);
-    }
-};
-
 pub const AstNode = struct {
     tok: lexeme.Token,
     children: std.ArrayList(AstNode),
@@ -34,17 +14,7 @@ pub const AstNode = struct {
         for (self.children.items) |*node| {
             node.deinit(alloc);
         }
-        switch (self.tok.kind) {
-            .DefCall => |def| {
-                var par = def.parameters;
-                for (par.items) |*parr| {
-                    parr.deinit(alloc);
-                }
-
-                par.deinit(alloc);
-            },
-            else => {},
-        }
+        self.tok.deinit(alloc);
         self.children.deinit(alloc);
     }
 
@@ -62,10 +32,93 @@ pub const AstNode = struct {
     }
 };
 
+pub const Statement = union(enum) {
+    Exp: AstNode,
+    If: struct { condition: AstNode, stats: std.ArrayList(Statement), els: std.ArrayList(Statement) },
+    While: struct { condition: AstNode, stats: std.ArrayList(Statement), els: std.ArrayList(Statement) },
+    Ret: AstNode,
+    Let: AstNode,
+    Break: lexeme.Token,
+    pub fn print(self: @This(), alloc: std.mem.Allocator) void {
+        switch (self) {
+            .Exp => |e| e.print(0, alloc),
+            .If => |e| {
+                std.debug.print("if: ", .{});
+                e.condition.print(0, alloc);
+                std.debug.print("....\n", .{});
+                for (e.stats.items) |st| {
+                    st.print(alloc);
+                }
+                std.debug.print("....\nelse\n....\n", .{});
+                for (e.els.items) |st| {
+                    st.print(alloc);
+                }
+                std.debug.print("....\n", .{});
+            },
+            .While => |e| {
+                std.debug.print("while: ", .{});
+                e.condition.print(0, alloc);
+                std.debug.print("....\n", .{});
+                for (e.stats.items) |st| {
+                    st.print(alloc);
+                }
+                std.debug.print("....\nelse\n....\n", .{});
+                for (e.els.items) |st| {
+                    st.print(alloc);
+                }
+                std.debug.print("....\n", .{});
+            },
+            .Break => std.debug.print("Break\n", .{}),
+            .Ret => |r| {
+                std.debug.print("return ", .{});
+                r.print(0, alloc);
+            },
+            .Let => |l| {
+                std.debug.print("let ", .{});
+                l.print(0, alloc);
+            },
+        }
+    }
+
+    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        switch (self.*) {
+            .If => |x| {
+                var y = x;
+                y.condition.deinit(alloc);
+                for (y.stats.items) |*stt| {
+                    stt.deinit(alloc);
+                }
+                y.stats.deinit(alloc);
+                for (y.els.items) |*els| {
+                    els.deinit(alloc);
+                }
+                y.els.deinit(alloc);
+            },
+            .While => |x| {
+                var y = x;
+                y.condition.deinit(alloc);
+                for (y.stats.items) |*stt| {
+                    stt.deinit(alloc);
+                }
+                y.stats.deinit(alloc);
+                for (y.els.items) |*els| {
+                    els.deinit(alloc);
+                }
+                y.els.deinit(alloc);
+            },
+            .Ret, .Let, .Exp => |x| {
+                var y = x;
+                y.deinit(alloc);
+            },
+            .Break => {},
+        }
+    }
+};
+
 pub const DefDecl = struct {
     name: lexeme.Token,
     parameters: std.ArrayList(struct { identifier: lexeme.Token, type: lexeme.Token }),
-    statements: std.ArrayList(AstNode),
+    statements: std.ArrayList(Statement),
 
     pub fn init() @This() {
         return .{ .name = .{ .idx = 0, .kind = .Unset }, .statements = .empty, .parameters = .empty };
@@ -96,8 +149,8 @@ pub const Module = struct {
                 std.debug.print("[{s}:{s}] ", .{ idf, typ });
             }
             std.debug.print("\n--\n", .{});
-            for (fun.statements.items) |stat| {
-                stat.print(0, alloc);
+            for (fun.statements.items) |*stat| {
+                stat.print(alloc);
                 std.debug.print("--\n", .{});
             }
         }
@@ -105,13 +158,22 @@ pub const Module = struct {
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         for (self.imports.items) |*imp| {
+            for (imp.path.items) |idf| {
+                alloc.free(idf);
+            }
+            alloc.free(imp.alias);
             imp.path.deinit(alloc);
         }
         self.imports.deinit(alloc);
         for (self.functions.items) |*fun| {
+            fun.name.deinit(alloc);
+            for (fun.parameters.items) |*st| {
+                st.identifier.deinit(alloc);
+                st.type.deinit(alloc);
+            }
             fun.parameters.deinit(alloc);
-            for (fun.statements.items) |*stats| {
-                stats.deinit(alloc);
+            for (fun.statements.items) |*stat| {
+                stat.deinit(alloc);
             }
             fun.statements.deinit(alloc);
         }

@@ -19,8 +19,10 @@ pub fn main() !void {
 
     var lex = lexer.Lexer.init(alloc, args.fileName, src);
     defer lex.deinit();
-
     try lex.lex();
+    defer fin.close();
+    defer alloc.free(src);
+
     const stats = try lex.toStatements(alloc);
     for (stats.items) |stat| {
         for (stat.items) |tok| {

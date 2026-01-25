@@ -8,7 +8,6 @@ pub const Lexer = struct {
     src: []const u8,
     fName: []const u8,
     tokens: std.ArrayList(lexeme.Token) = .empty,
-    stats: std.ArrayList(std.ArrayList(lexeme.Token)) = .empty,
     alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator, fName: []const u8, src: []const u8) @This() {
@@ -20,27 +19,10 @@ pub const Lexer = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        if (self.stats.items.len == 0 and self.tokens.items.len != 0) {
-            for (self.tokens.items) |tok| {
-                switch (tok.kind) {
-                    .StrLiteral => |s| self.alloc.free(s),
-                    // .Identifier => |s| self.alloc.free(s),
-                    else => {},
-                }
-            }
-            self.tokens.deinit(self.alloc);
-        } else {
-            for (self.stats.items) |*stat| {
-                for (stat.items) |tok| {
-                    switch (tok.kind) {
-                        .StrLiteral => |s| self.alloc.free(s),
-                        else => {},
-                    }
-                }
-                stat.deinit(self.alloc);
-            }
-            self.stats.deinit(self.alloc);
+        for (self.tokens.items) |*tok| {
+            tok.deinit(self.alloc);
         }
+        self.tokens.deinit(self.alloc);
     }
 
     pub fn lex(self: *@This()) !void {
@@ -196,18 +178,27 @@ pub const Lexer = struct {
         }
     }
 
+    pub fn deinitStatements(stats: *std.ArrayList(std.ArrayList(lexeme.Token)), alloc: std.mem.Allocator) void {
+        for (stats.items) |*stat| {
+            for (stat.items) |*tok| {
+                tok.deinit(alloc);
+            }
+            stat.deinit(alloc);
+        }
+        stats.deinit(alloc);
+    }
+
     pub fn toStatements(self: *@This(), alloc: std.mem.Allocator) error{OutOfMemory}!std.ArrayList(std.ArrayList(lexeme.Token)) {
         var idx: usize = 0;
+        var stats: std.ArrayList(std.ArrayList(lexeme.Token)) = .empty;
         const tokens = self.tokens.items;
-        if (tokens.len == 0)
-            return self.stats;
 
         while (idx < tokens.len) {
             var stat: std.ArrayList(lexeme.Token) = .empty;
             while (idx < tokens.len and tokens[idx].kind != .StatEnd) {
                 if (tokens[idx].kind == .BraceOpen or tokens[idx].kind == .BraceClose) {
                     if (stat.items.len != 0)
-                        try self.stats.append(alloc, stat);
+                        try stats.append(alloc, stat);
                     stat = .empty;
                     try stat.append(alloc, tokens[idx]);
                     break;
@@ -226,11 +217,10 @@ pub const Lexer = struct {
                 idx += 1;
             }
             if (stat.items.len != 0)
-                try self.stats.append(alloc, stat);
+                try stats.append(alloc, stat);
             idx += 1;
         }
-        self.tokens.deinit(self.alloc);
-        return self.stats;
+        return stats;
     }
 };
 
@@ -437,7 +427,9 @@ test "toStatements empty" {
 
     var lex = Lexer.init(testing.allocator, "", "");
     try lex.lex();
-    const stats = try lex.toStatements(testing.allocator);
+    var stats = try lex.toStatements(testing.allocator);
+    defer Lexer.deinitStatements(&stats, testing.allocator);
+
     lex.deinit();
     try testing.expect(stats.items.len == 0);
 }
@@ -513,8 +505,8 @@ test "toStatements text" {
     );
     try lex.lex();
     defer lex.deinit();
-    const stats = try lex.toStatements(testing.allocator);
-
+    var stats = try lex.toStatements(testing.allocator);
+    defer Lexer.deinitStatements(&stats, testing.allocator);
     try testing.expect(stats.items.len == expectedStats.len);
     for (stats.items, 0..) |stat, idx| {
         try testing.expect(stat.items.len == expectedStats[idx].len);

@@ -56,7 +56,7 @@ pub const Parser = struct {
         }
         var defDecl = ast.DefDecl.init();
         switch (stat[self.tokIdx].kind) {
-            .Identifier => defDecl.name = stat[self.tokIdx],
+            .Identifier => defDecl.name = try stat[self.tokIdx].toOwned(self.alloc),
             else => err(
                 self.fName,
                 self.src,
@@ -96,7 +96,7 @@ pub const Parser = struct {
                     .{stat[self.tokIdx].toStr(self.alloc)},
                 );
             }
-            paraName = stat[self.tokIdx];
+            paraName = try stat[self.tokIdx].toOwned(self.alloc);
             self.tokIdx += 1;
 
             if (self.tokIdx >= stat.len) {
@@ -182,7 +182,7 @@ pub const Parser = struct {
             );
         }
         self.statIdx += 1;
-        try self.parseStatements(&defDecl);
+        defDecl.statements = try self.parseStatements();
         try mod.functions.append(self.alloc, defDecl);
         // std.debug.print("{s}\n", .{defDecl.name.toStr(self.alloc)});
     }
@@ -267,11 +267,17 @@ pub const Parser = struct {
         return lhs;
     }
 
-    pub fn parseDefCall(self: *@This()) !ast.DefCall {
+    pub fn parseDefCall(self: *@This()) !ast.AstNode {
         const stat = self.statements.items[self.statIdx].items;
-        var defCall: ast.DefCall = .{ .callee = "", .parameters = .empty };
+        var defCall: ast.AstNode = .{
+            .tok = .{
+                .idx = stat[self.tokIdx].idx,
+                .kind = .{ .DefCall = "" },
+            },
+            .children = .empty,
+        };
         switch (stat[self.tokIdx].kind) {
-            .Identifier => |s| defCall.callee = s,
+            .Identifier => |s| defCall.tok.kind = .{ .DefCall = try self.alloc.dupe(u8, s) },
             else => return error.Unknown,
         }
         self.tokIdx += 2;
@@ -285,7 +291,7 @@ pub const Parser = struct {
             const exp = try self.parseExpression(true);
             if (self.tokIdx > stat.len or (self.tokIdx == stat.len and stat[self.tokIdx - 1].kind != .ParenClose))
                 return error.EarlyEof;
-            try defCall.parameters.append(self.alloc, exp);
+            try defCall.children.append(self.alloc, exp);
             if (self.tokIdx < stat.len and stat[self.tokIdx].kind == .Comma) {
                 self.tokIdx += 1;
                 if (self.tokIdx > stat.len)
@@ -311,6 +317,8 @@ pub const Parser = struct {
         var parenAmount: usize = 0;
         while (self.tokIdx < stat.len) {
             const tok = stat[self.tokIdx];
+            if (subExp and tok.kind == .Comma)
+                break;
             if (!(tok.kind == .Identifier or //
                 tok.kind.isLiteral() or
                 tok.kind.isBinOp() or
@@ -318,7 +326,8 @@ pub const Parser = struct {
                 tok.kind == .ParenOpen or
                 tok.kind == .ParenClose))
             {
-                break;
+                std.debug.print("{s}\n", .{tok.toStr(self.alloc)});
+                return error.InvalidTok;
             }
             if (subExp and tok.kind == .ParenClose and parenAmount == 0) {
                 break;
@@ -329,11 +338,10 @@ pub const Parser = struct {
             }
 
             if (self.tokIdx < stat.len - 1 and stat[self.tokIdx].kind == .Identifier and stat[self.tokIdx + 1].kind == .ParenOpen) {
-                const tokIdx = self.tokIdx;
-                const expTok: lexeme.Token = .{ .idx = tokIdx, .kind = .{ .DefCall = try self.parseDefCall() } };
-                try ret.append(self.alloc, .{ .tok = expTok, .children = .empty });
+                const node = try self.parseDefCall();
+                try ret.append(self.alloc, node);
             } else try ret.append(self.alloc, .{
-                .tok = tok,
+                .tok = try tok.toOwned(self.alloc),
                 .children = .empty,
             });
             self.tokIdx += 1;
@@ -349,29 +357,95 @@ pub const Parser = struct {
         return root;
     }
 
-    pub fn parseStatements(self: *@This(), def: *ast.DefDecl) !void {
+    pub fn parseStatements(self: *@This()) !std.ArrayList(ast.Statement) {
+        var stats: std.ArrayList(ast.Statement) = .empty;
         self.statIdx += 1;
         while (self.statIdx < self.statements.items.len) {
             if (self.statements.items[self.statIdx].items[0].kind == .BraceClose) {
-                return;
+                return stats;
             }
             self.tokIdx = 0;
-            const stat = self.statements.items;
-            const tok = self.statements.items[self.statIdx].items[0];
+            const stat = self.statements.items[self.statIdx].items;
+            const tok = stat[0];
             if (tok.kind == .Return) {
                 self.tokIdx += 1;
                 if (self.tokIdx >= stat.len) {
                     return error.EarlyEof;
                 }
-                var ret: ast.AstNode = .{ .tok = tok, .children = .empty };
-                try ret.children.append(self.alloc, try self.parseExpression(false));
-                try def.statements.append(self.alloc, ret);
+                try stats.append(self.alloc, .{ .Ret = try self.parseExpression(false) });
+            } else if (tok.kind == .Let) {
+                self.tokIdx += 1;
+                if (self.tokIdx >= stat.len) {
+                    return error.EarlyEof;
+                }
+                try stats.append(self.alloc, .{ .Let = try self.parseExpression(false) });
+            } else if (tok.kind == .If) {
+                self.tokIdx += 1;
+                if (self.tokIdx >= stat.len) {
+                    return error.EarlyEof;
+                }
+                try stats.append(
+                    self.alloc,
+                    .{
+                        .If = .{ .condition = try self.parseExpression(false), .stats = ifBreak: {
+                            self.statIdx += 1;
+                            break :ifBreak try self.parseStatements();
+                        }, .els = ifEls: {
+                            if (self.statIdx + 1 < self.statements.items.len) {
+                                if (self.statements.items[self.statIdx + 1].items[0].kind == .Else) {
+                                    self.statIdx += 2;
+                                    if (self.statIdx >= self.statements.items.len) {
+                                        return error.EarlyEof;
+                                    }
+                                    break :ifEls try self.parseStatements();
+                                }
+                            }
+                            break :ifEls .empty;
+                        } },
+                    },
+                );
+            } else if (tok.kind == .While) {
+                self.tokIdx += 1;
+                if (self.tokIdx >= stat.len) {
+                    return error.EarlyEof;
+                }
+                try stats.append(
+                    self.alloc,
+                    .{
+                        .While = .{
+                            .condition = try self.parseExpression(false), //
+                            .stats = whileBreak: {
+                                self.statIdx += 1;
+                                break :whileBreak try self.parseStatements();
+                            },
+                            .els = whileEls: {
+                                if (self.statIdx + 1 < self.statements.items.len) {
+                                    if (self.statements.items[self.statIdx + 1].items[0].kind == .Else) {
+                                        self.statIdx += 2;
+                                        if (self.statIdx >= self.statements.items.len) {
+                                            return error.EarlyEof;
+                                        }
+                                        break :whileEls try self.parseStatements();
+                                    }
+                                }
+                                break :whileEls .empty;
+                            },
+                        },
+                    },
+                );
+            } else if (tok.kind == .Break) {
+                if (stat.len != 1) {
+                    return error.InvalidTok;
+                }
+                try stats.append(self.alloc, .{ .Break = tok });
             } else {
                 const x = try self.parseExpression(false);
-                try def.statements.append(self.alloc, x);
+                try stats.append(self.alloc, .{ .Exp = x });
             }
             self.statIdx += 1;
         }
+        std.debug.print("{d} {d}", .{ self.statIdx, self.statements.items.len });
+        return error.ExpectedBrace;
     }
 
     pub fn parseDeclarative(self: *@This(), mod: *ast.Module) !void {
@@ -399,7 +473,7 @@ pub const Parser = struct {
                 );
 
             switch (stat[self.tokIdx].kind) {
-                .Identifier => |s| try import.path.append(self.alloc, s),
+                .Identifier => |s| try import.path.append(self.alloc, try self.alloc.dupe(u8, s)),
                 else => err(
                     self.fName,
                     self.src,
@@ -421,7 +495,7 @@ pub const Parser = struct {
                     );
 
                 switch (stat[self.tokIdx].kind) {
-                    .Identifier => |s| try import.path.append(self.alloc, s),
+                    .Identifier => |s| try import.path.append(self.alloc, try self.alloc.dupe(u8, s)),
                     else => err(
                         self.fName,
                         self.src,
@@ -456,7 +530,7 @@ pub const Parser = struct {
                         }
                         switch (stat[self.tokIdx].kind) {
                             .Identifier => |s| {
-                                import.alias = s;
+                                import.alias = try self.alloc.dupe(u8, s);
                                 self.tokIdx += 1;
                             },
                             else => {
@@ -481,7 +555,7 @@ pub const Parser = struct {
                     },
                 }
             } else {
-                import.alias = import.path.items[0];
+                import.alias = try self.alloc.dupe(u8, import.path.items[0]);
             }
             if (self.tokIdx < stat.len)
                 err(
@@ -505,41 +579,39 @@ pub const Parser = struct {
 };
 
 const testing = std.testing;
+const Lexer = @import("lexer.zig").Lexer;
 
 test "parse import statements" {
-    var lex = @import("lexer.zig").Lexer.init(testing.allocator, "",
+    var lex = Lexer.init(testing.allocator, "",
         \\@import std;
         \\@import std.math as math;
-        \\def add(a: int, b: int) {
-        \\ return a + b;
-        \\}
-        \\def main() {
-        \\ print(add(5,6));
-        \\}
     );
-    defer lex.deinit();
 
     try lex.lex();
 
-    const stats = try lex.toStatements(testing.allocator);
+    var stats = try lex.toStatements(testing.allocator);
+    defer Lexer.deinitStatements(&stats, testing.allocator);
 
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
 
     var mod = try parser.parse();
-    mod.print(testing.allocator);
+    lex.deinit();
+
+    // mod.print(testing.allocator);
     mod.deinit(testing.allocator);
 }
 
 test "parse expression" {
-    var lex = @import("lexer.zig").Lexer.init(testing.allocator, "", "((a + b) * (c - d) / 1) + ---((x % y) / -(m - n));");
-    // var lex = @import("lexer.zig").Lexer.init(testing.allocator, "", "---a;");
-    defer lex.deinit();
+    var lex = @import("lexer.zig").Lexer.init(testing.allocator, "", "((a + b) * (c - d) / 1) + ---((x % y) /    -(m - n))       ;  ");
 
     try lex.lex();
-    const stats = try lex.toStatements(testing.allocator);
-    var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
+    var stats = try lex.toStatements(testing.allocator);
+    defer Lexer.deinitStatements(&stats, testing.allocator);
 
+    var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
     var mod = try parser.parseExpression(false);
+    lex.deinit();
+
     // mod.print(0, testing.allocator);
     mod.deinit(testing.allocator);
 }
@@ -550,13 +622,66 @@ test "parse function call" {
         "",
         "print(30+10,10) + 10 + x()",
     );
-    defer lex.deinit();
 
     try lex.lex();
-    const stats = try lex.toStatements(testing.allocator);
+    var stats = try lex.toStatements(testing.allocator);
+    lex.deinit();
+
+    defer Lexer.deinitStatements(&stats, testing.allocator);
 
     var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
     var mod = try parser.parseExpression(false);
+
     // mod.print(0, testing.allocator);
+    mod.deinit(testing.allocator);
+}
+
+test "parse module" {
+    var lex = @import("lexer.zig").Lexer.init(testing.allocator, "",
+        \\@import std;
+        \\@import std.math as math;
+        \\def add(a: int, b: int) {
+        \\ return a + b;
+        \\}
+        \\def main() {
+        \\ print("addition: ",add(5,6));
+        \\ if (5 < 3) {
+        \\  print(5);
+        \\ } 
+        \\ else {
+        \\ if(5 > 10) {
+        \\   println(10);
+        \\  }
+        \\else {
+        \\   println(3);
+        \\  }
+        \\ }
+        \\ let i = 10;
+        \\ while (true) {
+        \\  println(i);
+        \\  if (i == 0) {break;}
+        \\  i -= 1;
+        \\ }
+        \\ return 0;
+        \\}
+    );
+
+    try lex.lex();
+
+    var stats = try lex.toStatements(testing.allocator);
+    lex.deinit();
+    // for (stats.items) |stat| {
+    //     for (stat.items) |tok| {
+    //         std.debug.print("{s} ", .{tok.toStr(std.heap.page_allocator)});
+    //     }
+    //     std.debug.print("\n", .{});
+    // }
+
+    var parser = Parser.init(testing.allocator, lex.src, lex.fName, stats);
+
+    var mod = try parser.parse();
+    Lexer.deinitStatements(&stats, testing.allocator);
+
+    mod.print(testing.allocator);
     mod.deinit(testing.allocator);
 }

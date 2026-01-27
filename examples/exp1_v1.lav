@@ -1,8 +1,8 @@
-def add(a:int, b:int) {
+def add(a:int, b:int) int {
     return b+ a; 
 }
 
-def main() {
+def main() int {
     let x = toInt(input("Enter No: "));
     let y = toInt(input("Enter No: "));
     println("add: {}", add(x,y));

@@ -25,6 +25,7 @@ pub const TokenKind = union(enum) {
     FloatType,
     StrType,
     CharType,
+    VoidType,
 
     Declarative,
     MemberOp,
@@ -91,6 +92,7 @@ pub const TokenKind = union(enum) {
             .CharType => alloc.dupe(u8, "char") catch "error",
             .FloatType => alloc.dupe(u8, "float") catch "error",
             .BoolType => alloc.dupe(u8, "bool") catch "error",
+            .VoidType => alloc.dupe(u8, "void") catch "error",
 
             .Declarative => alloc.dupe(u8, "@") catch "error",
             .MemberOp => alloc.dupe(u8, ".") catch "error",
@@ -172,12 +174,21 @@ pub const TokenKind = union(enum) {
             else => false,
         };
     }
+
+    pub fn isEqlOp(self: @This()) bool {
+        return switch (self) {
+            .EqlOp, .AddEqlOp, .SubEqlOp, .MulEqlOp, .DivEqlOp, .ModEqlOp => true,
+            else => false,
+        };
+    }
+
     pub fn isType(self: @This()) bool {
         return switch (self) {
             .IntType,
             .FloatType,
             .StrType,
             .CharType,
+            .VoidType,
             .BoolType,
             => true,
             else => false,
@@ -292,38 +303,38 @@ pub fn getSymbol(src: []const u8, idx: *usize) !Token {
     return .{ .kind = kind, .idx = idx.* };
 }
 
-pub fn getTextType(idx: usize, txt: []const u8) !Token {
-    if (std.mem.eql(u8, txt, "import"))
-        return .{ .idx = idx, .kind = .Import };
-    if (std.mem.eql(u8, txt, "as"))
-        return .{ .idx = idx, .kind = .As };
-    if (std.mem.eql(u8, txt, "def"))
-        return .{ .idx = idx, .kind = .Def };
-    if (std.mem.eql(u8, txt, "int"))
-        return .{ .idx = idx, .kind = .IntType };
-    if (std.mem.eql(u8, txt, "float"))
-        return .{ .idx = idx, .kind = .FloatType };
-    if (std.mem.eql(u8, txt, "str"))
-        return .{ .idx = idx, .kind = .StrType };
-    if (std.mem.eql(u8, txt, "pub"))
-        return .{ .idx = idx, .kind = .Public };
-    if (std.mem.eql(u8, txt, "let"))
-        return .{ .idx = idx, .kind = .Let };
-    if (std.mem.eql(u8, txt, "return"))
-        return .{ .idx = idx, .kind = .Return };
+const Keyword = struct {
+    text: []const u8,
+    kind: TokenKind,
+};
 
-    if (std.mem.eql(u8, txt, "if"))
-        return .{ .idx = idx, .kind = .If };
-    if (std.mem.eql(u8, txt, "else"))
-        return .{ .idx = idx, .kind = .Else };
-    if (std.mem.eql(u8, txt, "while"))
-        return .{ .idx = idx, .kind = .While };
-    if (std.mem.eql(u8, txt, "break"))
-        return .{ .idx = idx, .kind = .Break };
-    if (std.mem.eql(u8, txt, "true"))
-        return .{ .idx = idx, .kind = .True };
-    if (std.mem.eql(u8, txt, "false"))
-        return .{ .idx = idx, .kind = .False };
+const keywords = [_]Keyword{
+    .{ .text = "import", .kind = .Import },
+    .{ .text = "as", .kind = .As },
+    .{ .text = "def", .kind = .Def },
+    .{ .text = "pub", .kind = .Public },
+    .{ .text = "let", .kind = .Let },
+    .{ .text = "return", .kind = .Return },
+
+    .{ .text = "int", .kind = .IntType },
+    .{ .text = "float", .kind = .FloatType },
+    .{ .text = "str", .kind = .StrType },
+    .{ .text = "bool", .kind = .BoolType },
+    .{ .text = "void", .kind = .VoidType },
+
+    .{ .text = "if", .kind = .If },
+    .{ .text = "else", .kind = .Else },
+    .{ .text = "while", .kind = .While },
+    .{ .text = "break", .kind = .Break },
+
+    .{ .text = "true", .kind = .True },
+    .{ .text = "false", .kind = .False },
+};
+
+pub fn getTextType(idx: usize, txt: []const u8) !Token {
+    for (keywords) |kw|
+        if (std.mem.eql(u8, kw.text, txt))
+            return .{ .idx = idx, .kind = kw.kind };
 
     return .{ .idx = idx, .kind = .{ .Identifier = txt } };
 }

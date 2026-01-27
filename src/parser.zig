@@ -173,11 +173,31 @@ pub const Parser = struct {
         self.tokIdx += 1;
 
         if (self.tokIdx != stat.len) {
-            err(
+            if (stat[self.tokIdx].kind.isType()) {
+                defDecl.dtype = stat[self.tokIdx].kind;
+            } else err(
                 self.fName,
                 self.src,
                 stat[self.tokIdx].idx,
-                "Expected ')', found '{s}'",
+                "Expected return type, found '{s}'",
+                .{stat[self.tokIdx].toStr(self.alloc)},
+            );
+        } else {
+            err(
+                self.fName,
+                self.src,
+                stat[self.tokIdx - 1].idx + 1,
+                "Expected return type, found none",
+                .{},
+            );
+        }
+        self.tokIdx += 1;
+        if (self.tokIdx != stat.len) {
+            err(
+                self.fName,
+                self.src,
+                stat[self.tokIdx - 1].idx,
+                "Unexpected token '{s}'",
                 .{stat[self.tokIdx].toStr(self.alloc)},
             );
         }
@@ -299,7 +319,7 @@ pub const Parser = struct {
         return lhs;
     }
 
-    pub fn parseDefCall(self: *@This()) !ast.AstNode {
+    pub fn parseDefCall(self: *@This()) error{ OutOfMemory, Unknown }!ast.AstNode {
         const stat = self.statements.items[self.statIdx].items;
         var defCall: ast.AstNode = .{
             .tok = .{
@@ -361,14 +381,7 @@ pub const Parser = struct {
         return defCall;
     }
 
-    pub fn parseExpression(self: *@This(), subExp: bool) error{
-        OutOfMemory,
-        Unknown,
-        EarlyEof,
-        MissingParenClose,
-        InvalidTok,
-        InvalidExpr,
-    }!ast.AstNode {
+    pub fn parseExpression(self: *@This(), subExp: bool) error{ OutOfMemory, Unknown }!ast.AstNode {
         var ret: std.ArrayList(ast.AstNode) = .empty;
         defer ret.deinit(self.alloc);
         const stat = self.statements.items[self.statIdx].items;
@@ -441,15 +454,10 @@ pub const Parser = struct {
             if (tok.kind == .Return) {
                 self.tokIdx += 1;
                 if (self.tokIdx >= stat.len) {
-                    err(
-                        self.fName,
-                        self.src,
-                        tok.idx,
-                        "Early end of statement, {s}",
-                        .{tok.toStr(self.alloc)},
-                    );
+                    try stats.append(self.alloc, .{ .Ret = .{ .tok = .{ .idx = tok.idx, .kind = .VoidType }, .children = .empty } });
+                } else {
+                    try stats.append(self.alloc, .{ .Ret = try self.parseExpression(false) });
                 }
-                try stats.append(self.alloc, .{ .Ret = try self.parseExpression(false) });
             } else if (tok.kind == .Let) {
                 self.tokIdx += 1;
                 if (self.tokIdx >= stat.len) {
@@ -761,10 +769,10 @@ test "parse module" {
     var lex = @import("lexer.zig").Lexer.init(testing.allocator, "",
         \\@import std;
         \\@import std.math as math;
-        \\def add(a: int, b: int) {
+        \\def add(a: int, b: int) int {
         \\ return a + b;
         \\}
-        \\def main() {
+        \\def main() int {
         \\ print("addition: ",add(5,6));
         \\ if (5 < 3) {
         \\  print(5);
@@ -803,6 +811,5 @@ test "parse module" {
     var mod = try parser.parse();
     Lexer.deinitStatements(&stats, testing.allocator);
 
-    mod.print(testing.allocator);
     mod.deinit(testing.allocator);
 }

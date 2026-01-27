@@ -36,4 +36,5 @@ test "main test" {
     _ = @import("lexeme.zig");
     _ = @import("lexer.zig");
     _ = @import("parser.zig");
+    _ = @import("codegen.zig");
 }

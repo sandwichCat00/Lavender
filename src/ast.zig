@@ -117,11 +117,19 @@ pub const Statement = union(enum) {
 
 pub const DefDecl = struct {
     name: lexeme.Token,
+    dtype: lexeme.TokenKind,
+    varLen: bool,
     parameters: std.ArrayList(struct { identifier: lexeme.Token, type: lexeme.Token }),
     statements: std.ArrayList(Statement),
 
     pub fn init() @This() {
-        return .{ .name = .{ .idx = 0, .kind = .Unset }, .statements = .empty, .parameters = .empty };
+        return .{
+            .name = .{ .idx = 0, .kind = .Unset },
+            .varLen = false,
+            .statements = .empty,
+            .parameters = .empty,
+            .dtype = .Unset,
+        };
     }
 };
 

@@ -128,7 +128,7 @@ const CodeGen = struct {
             .IsEqlOp, .IsGrterOp, .IsLessOp => isNumeric(l) and isNumeric(r),
 
             .EqlOp, .AddEqlOp, .SubEqlOp, .MulEqlOp, .DivEqlOp, .ModEqlOp => {
-                return (isNumeric(l) and isNumeric(r)) or (l == .StrType and r == .StrType);
+                return (isInteger(l) and isInteger(r)) or (l == .StrType and r == .StrType);
             },
             else => false,
         };
@@ -187,7 +187,6 @@ const CodeGen = struct {
         InvalidArgumentType,
         InvalidTypedOperation,
         InvalidLValue,
-        IdentifierRedefined,
     }!lexeme.TokenKind {
         switch (node.tok.kind) {
             .IntLiteral => return .IntType,
@@ -197,6 +196,7 @@ const CodeGen = struct {
             .True, .False => return .BoolType,
             .VoidType => return .VoidType,
             .Identifier => |x| {
+                std.debug.print("idf: {s}\n", .{x});
                 if (isLet)
                     return .VoidType;
                 for (idfLookupTable.items) |idf| {
@@ -204,36 +204,19 @@ const CodeGen = struct {
                         return idf.@"1";
                     }
                 }
+                std.debug.print("{s}", .{x});
                 return error.UnknownIdentifier;
             },
-            .DefCall => {
+            .DefCall => |x| {
+                std.debug.print("def: {s}\n", .{x});
                 return try checkDefCall(node, funLookupTable, idfLookupTable);
             },
             else => {},
         }
         if (node.tok.kind.isBinOp()) {
             if (node.tok.kind.isEqlOp()) {
-                switch (node.children.items[0].tok.kind) {
-                    .Identifier => |s| {
-                        if (isLet) {
-                            for (idfLookupTable.items) |idf| {
-                                if (std.mem.eql(u8, idf.@"0", s)) {
-                                    return error.IdentifierRedefined;
-                                }
-                            }
-                            for (funLookupTable.items) |fun| {
-                                switch (fun.name.kind) {
-                                    .Identifier => |x| {
-                                        if (std.mem.eql(u8, x, s)) {
-                                            return error.IdentifierRedefined;
-                                        }
-                                    },
-                                    else => {},
-                                }
-                            }
-                        }
-                    },
-                    else => return error.InvalidLValue,
+                if (node.children.items[0].tok.kind != .Identifier) {
+                    return error.InvalidLValue;
                 }
                 if (node.tok.kind != .EqlOp) {
                     if (node.tok.kind == .ModEqlOp and !isInteger(node.children.items[0].tok.kind)) {
@@ -245,6 +228,7 @@ const CodeGen = struct {
             }
             const l = try checkType(node.children.items[0], funLookupTable, idfLookupTable, isLet and node.tok.kind.isEqlOp());
             const r = try checkType(node.children.items[1], funLookupTable, idfLookupTable, false);
+
             if (isValidBinaryOp(node.tok.kind, l, r) or (isLet and node.tok.kind.isEqlOp())) {
                 return resultType(node.tok.kind, l, r);
             } else {
@@ -252,17 +236,7 @@ const CodeGen = struct {
                 return error.InvalidTypedOperation;
             }
         } else if (node.tok.kind.isUniOp()) {
-            const x = try checkType(
-                node.children.items[0],
-                funLookupTable,
-                idfLookupTable,
-                false,
-            );
-            if (!isNumeric(x)) {
-                return error.InvalidTypedOperation;
-            } else {
-                return x;
-            }
+            if (!isNumeric(checkType(node.children.items[0], funLookupTable, idfLookupTable, false)));
         }
         node.print(0, testing.allocator);
         return error.InvalidExpression;
@@ -350,8 +324,6 @@ test "import code gen" {
         \\  let x = toInt(input("Enter No: "));
         \\  let y = toInt(input("Enter No: "));
         \\  println("add: {}", add(x,y));
-        \\  let x1 = 10;
-        \\  x = 10.1;
         \\  return ;
         \\}
     ;

@@ -2,7 +2,7 @@ const std = @import("std");
 const ast = @import("ast.zig");
 pub const TokenKind = union(enum) {
     Identifier: []const u8,
-    IntLiteral: i64,
+    IntLiteral: u64,
     FloatLiteral: f64,
     CharLiteral: u8,
     StrLiteral: []const u8,

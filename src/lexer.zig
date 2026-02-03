@@ -77,7 +77,7 @@ pub const Lexer = struct {
                     const x = std.fmt.parseFloat(f64, src[initIdx..idx]) catch 0.0;
                     try self.tokens.append(self.alloc, .{ .idx = initIdx, .kind = .{ .FloatLiteral = x } });
                 } else {
-                    const x = std.fmt.parseInt(i64, src[initIdx..idx], 10) catch 0;
+                    const x = std.fmt.parseInt(u64, src[initIdx..idx], 10) catch 0;
                     try self.tokens.append(self.alloc, .{ .idx = initIdx, .kind = .{ .IntLiteral = x } });
                 }
             } else if (src[idx] == '\"') {

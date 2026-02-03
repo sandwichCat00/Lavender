@@ -469,7 +469,8 @@ pub const Parser = struct {
                         .{tok.toStr(self.alloc)},
                     );
                 }
-                try stats.append(self.alloc, .{ .Let = try self.parseExpression(false) });
+                const exp = try self.parseExpression(false);
+                try stats.append(self.alloc, .{ .Let = exp });
             } else if (tok.kind == .If) {
                 self.tokIdx += 1;
                 if (self.tokIdx >= stat.len) {

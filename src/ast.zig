@@ -121,6 +121,7 @@ pub const DefDecl = struct {
     varLen: bool,
     parameters: std.ArrayList(struct { identifier: lexeme.Token, type: lexeme.Token }),
     statements: std.ArrayList(Statement),
+    isBuiltIn: bool = false,
 
     pub fn init() @This() {
         return .{

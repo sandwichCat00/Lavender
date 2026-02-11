@@ -37,8 +37,15 @@ const ModuleIR = struct {
     instructions: std.ArrayList(u8) = .empty,
 };
 
-// WARN: x1000000000000000+ addresses for constants and less than that for data
+// WARN:
 // 0. immediate, 1. Data Addr, 2. Const Addr
+// for lavb files
+// 4 bytes -> functionListSize
+// x bytes -> [ 4 bytes address, 4 bytes idx  ]
+// 4 bytes -> main idx (gotta "- 1" as idx 0 = no main)
+// 4 bytes -> const poll size
+// x bytes -> const poll
+// x bytes -> instructions
 const CodeGen = struct {
     mod: ast.Module,
     src: []const u8,
@@ -83,6 +90,28 @@ const CodeGen = struct {
         },
     };
 
+    pub fn printToFile(self: *@This()) !void {
+        const cwd = std.fs.cwd();
+        try cwd.makePath("./lav-out/");
+        const outFile = try cwd.createFile("./lav-out/main.lavb", .{});
+        try outFile.writeAll(std.mem.asBytes(&self.moduleIr.funcTable.items.len));
+
+        var mainIdx: usize = 0;
+
+        for (self.moduleIr.funcTable.items, 0..) |fun, idx| {
+            try outFile.writeAll(std.mem.asBytes(&fun.@"0"));
+            try outFile.writeAll(std.mem.asBytes(&idx));
+            if (std.mem.eql(u8, fun.@"1", "main")) {
+                mainIdx = idx + 1;
+            }
+        }
+        try outFile.writeAll(std.mem.asBytes(&mainIdx));
+        try outFile.writeAll(std.mem.asBytes(&self.moduleIr.constPull.items.len));
+        try outFile.writeAll(self.moduleIr.constPull.items);
+        const insts = self.moduleIr.instructions.items;
+        try outFile.writeAll(insts);
+    }
+
     pub fn print(self: *@This()) !void {
         std.debug.print("# fn table:\n", .{});
         for (self.moduleIr.funcTable.items, 0..) |fun, idx| {
@@ -92,7 +121,7 @@ const CodeGen = struct {
         std.debug.print("{x:0>4}: ", .{0});
         for (self.moduleIr.constPull.items, 0..) |cIdx, idx| {
             if (cIdx == 0)
-                std.debug.print("\n{x:0>4}: ", .{idx});
+                std.debug.print("\n{x:0>4}: ", .{idx + 1});
             std.debug.print("{c}", .{cIdx});
         }
         std.debug.print("\n\n# instructions:\n", .{});
@@ -560,7 +589,7 @@ const CodeGen = struct {
                 try self.add(opData, @bitCast(f), 0);
             },
             .StrLiteral => |s| {
-                const idx = try self.addConst(s) | 0x8000000000000000;
+                const idx = try self.addConst(s);
 
                 var opData = opCode;
                 if (opCode == .Pushi8)
@@ -782,4 +811,5 @@ test "import code gen" {
     try codeGen.sanityCheck();
     try codeGen.gen();
     try codeGen.print();
+    try codeGen.printToFile();
 }

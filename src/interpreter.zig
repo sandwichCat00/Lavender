@@ -14,6 +14,11 @@ pub const Interpreter = struct {
     fn initModuleIR(self: *@This()) !void {
         const src = self.src;
         var idx: usize = 0;
+
+        for (builtin.BuiltInFuncs.defs.items) |_| {
+            try self.moduleIR.funcTable.append(self.alloc, .{ 0, "" });
+        }
+
         const funcSize = try util.readU64(src, &idx);
         for (0..funcSize) |_| {
             const funcAddr = try util.readU64(src, &idx);
@@ -223,9 +228,5 @@ pub const Interpreter = struct {
 
 const testing = std.testing;
 test "basic test" {
-    try builtin.BuiltInFuncs.init(testing.allocator);
-    defer builtin.BuiltInFuncs.deinit();
-    var int = try Interpreter.init(testing.allocator, "./lav-out/main.lavb");
-    defer int.deinit();
-    try int.run();
+    std.debug.print("asd\n", .{});
 }

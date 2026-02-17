@@ -63,6 +63,11 @@ fn getLineAtIndex(src: []const u8, idx_: usize) []const u8 {
     return src[start..end];
 }
 pub fn err(fName: []const u8, src: []const u8, idx: usize, comptime msg: []const u8, args: anytype) void {
+    errNoExit(fName, src, idx, msg, args);
+    std.process.exit(1);
+}
+
+pub fn errNoExit(fName: []const u8, src: []const u8, idx: usize, comptime msg: []const u8, args: anytype) void {
     std.debug.print("{s}Error{s}: ", .{ Color.fg(.red), Color.fg(.reset) });
     if (fName.len != 0)
         std.debug.print("{s}{s}{s}", .{ Color.fg(.yellow), fName, Color.fg(.reset) });
@@ -84,7 +89,6 @@ pub fn err(fName: []const u8, src: []const u8, idx: usize, comptime msg: []const
     } else {
         std.debug.print("\n", .{});
     }
-    std.process.exit(1);
 }
 
 pub fn readU64(src: []const u8, offset: *usize) !u64 {

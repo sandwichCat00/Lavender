@@ -98,10 +98,9 @@ fn inputCall(
         },
         else => return error.InvalidArgumentType,
     }
-    // var buff_in: [1024]u8 = undefined;
-    // var stdin = std.fs.File.stdin().reader(&buff_in);
-    // const x = try stdin.interface.takeDelimiterExclusive('\n');
-    const x = "123";
+    var buff_in: [1024]u8 = undefined;
+    var stdin = std.fs.File.stdin().reader(&buff_in);
+    const x = try stdin.interface.takeDelimiterExclusive('\n');
     const idx = constPool.items.len;
     try constPool.appendSlice(alloc, x);
     try constPool.append(alloc, 0);

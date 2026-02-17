@@ -37,8 +37,11 @@ pub const ModuleIR = struct {
 
     pub fn print(self: @This()) !void {
         std.debug.print("# fn table:\n", .{});
-        for (self.funcTable.items, 0..) |fun, idx| {
-            std.debug.print("{s} : {x:0>4} -> {d}\n", .{ fun.@"1", fun.@"0", idx });
+        var funIdx = builtin.BuiltInFuncs.defs.items.len;
+        while (funIdx < self.funcTable.items.len) {
+            const fun = self.funcTable.items[funIdx];
+            std.debug.print("{s} : {x:0>4} -> {d}\n", .{ fun.@"1", fun.@"0", funIdx });
+            funIdx += 1;
         }
         std.debug.print("\n# const table:\n", .{});
         std.debug.print("{x:0>4}: ", .{0});
@@ -139,7 +142,7 @@ pub const ModuleIR = struct {
 // 8 bytes -> const poll size
 // x bytes -> const poll
 // x bytes -> instructions
-const CodeGen = struct {
+pub const CodeGen = struct {
     mod: ast.Module,
     src: []const u8,
     alloc: std.mem.Allocator,
@@ -147,19 +150,28 @@ const CodeGen = struct {
 
     idfLookUpTable: std.ArrayList(struct { []const u8, DataType }) = .empty,
     funcIdfs: usize = 0,
-    pub fn printToFile(self: *@This()) !void {
+    pub fn printToFile(self: *@This(), fname: []const u8, path: []const u8) !void {
         const cwd = std.fs.cwd();
-        try cwd.makePath("./lav-out/");
-        const outFile = try cwd.createFile("./lav-out/main.lavb", .{});
-        try outFile.writeAll(std.mem.asBytes(&self.moduleIr.funcTable.items.len));
+        try cwd.makePath(path);
+        const x = try std.fmt.allocPrint(self.alloc, "{s}/{s}b", .{
+            std.mem.trimRight(u8, path, "/"),
+            std.fs.path.basename(fname),
+        });
+        defer self.alloc.free(x);
+        const outFile = try cwd.createFile(x, .{});
+        defer outFile.close();
+        var idx = self.moduleIr.funcTable.items.len - builtin.BuiltInFuncs.defs.items.len;
+        try outFile.writeAll(std.mem.asBytes(&idx));
 
         var mainIdx: usize = 0;
-
-        for (self.moduleIr.funcTable.items, 0..) |fun, idx| {
+        idx = builtin.BuiltInFuncs.defs.items.len;
+        while (idx < self.moduleIr.funcTable.items.len) {
+            const fun = self.moduleIr.funcTable.items[idx];
             try outFile.writeAll(std.mem.asBytes(&fun.@"0"));
             if (std.mem.eql(u8, fun.@"1", "main")) {
                 mainIdx = idx + 1;
             }
+            idx += 1;
         }
         try outFile.writeAll(std.mem.asBytes(&mainIdx));
         try outFile.writeAll(std.mem.asBytes(&self.moduleIr.constPool.items.len));
@@ -206,10 +218,13 @@ const CodeGen = struct {
             .src = src,
             .alloc = alloc,
         };
-        try x.moduleIr.funcTable.append(alloc, .{ 0, "println" });
-        try x.moduleIr.funcTable.append(alloc, .{ 0, "print" });
-        try x.moduleIr.funcTable.append(alloc, .{ 0, "input" });
-        try x.moduleIr.funcTable.append(alloc, .{ 0, "toInt" });
+        for (builtin.BuiltInFuncs.defs.items) |def| {
+            try x.mod.functions.append(alloc, def.@"0");
+            switch (def.@"0".name.kind) {
+                .Identifier => |defName| try x.moduleIr.funcTable.append(alloc, .{ 0, defName }),
+                else => {},
+            }
+        }
 
         return x;
     }
@@ -427,7 +442,6 @@ const CodeGen = struct {
                 return x;
             }
         }
-        node.print(0, testing.allocator);
         return error.InvalidExpression;
     }
 
@@ -707,27 +721,25 @@ test "import code gen" {
         \\  return;
         \\}
     ;
-
-    var lex = lexer.Lexer.init(testing.allocator, "fin", src);
+    const alloc = testing.allocator;
+    var lex = lexer.Lexer.init(alloc, "test.lav", src);
     try lex.lex();
-    var stats = try lex.toStatements(testing.allocator);
+
+    var stats = try lex.toStatements(alloc);
     lex.deinit();
 
-    var parser = Parser.init(testing.allocator, src, "fin", stats);
+    var parser = Parser.init(alloc, src, "test.lav", stats);
     var mod = try parser.parse();
-    try builtin.BuiltInFuncs.init(testing.allocator);
-    defer builtin.BuiltInFuncs.deinit();
-    for (builtin.BuiltInFuncs.defs.items) |def| {
-        try mod.functions.append(testing.allocator, def.@"0");
-    }
-    defer mod.deinit(testing.allocator);
-    lexer.Lexer.deinitStatements(&stats, testing.allocator);
+    defer mod.deinit(alloc);
+    lexer.Lexer.deinitStatements(&stats, alloc);
 
-    var codeGen = try CodeGen.init(mod, src, testing.allocator);
+    try builtin.BuiltInFuncs.init(alloc);
+    defer builtin.BuiltInFuncs.deinit();
+    var codeGen = try CodeGen.init(mod, src, alloc);
     defer codeGen.deinit();
     try codeGen.sanityCheck();
     try codeGen.gen();
     try codeGen.moduleIr.print();
     std.debug.print("----\n", .{});
-    try codeGen.printToFile();
+    try codeGen.printToFile("test.lav");
 }

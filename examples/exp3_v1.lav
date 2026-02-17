@@ -1,0 +1,5 @@
+def main() void {
+    let x = input("enter a string: ");
+    let y = "asdasd";
+    println("{}", x);
+  }

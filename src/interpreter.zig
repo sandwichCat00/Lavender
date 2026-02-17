@@ -77,6 +77,12 @@ pub const Interpreter = struct {
                 .Div,
                 .Mul,
                 .Mod,
+                .Eql,
+                .Gtr,
+                .Les,
+                .GtrEql,
+                .LesEql,
+                .NotEql,
                 => {
                     const op2R = if (opStack.pop()) |p| p //
                         else return error.emptyStack;
@@ -93,12 +99,18 @@ pub const Interpreter = struct {
                                 const int: i64 = @bitCast(op2R.@"1");
                                 break :bl @floatFromInt(int);
                             };
-                        const res = switch (opCode) {
+                        const res: f64 = switch (opCode) {
                             .Add => op1 + op2,
                             .Sub => op1 - op2,
                             .Div => op1 / op2,
                             .Mul => op1 * op2,
                             .Mod => @mod(op1, op2),
+                            .Eql => @floatFromInt(@intFromBool(op1 == op2)),
+                            .Gtr => @floatFromInt(@intFromBool(op1 > op2)),
+                            .Les => @floatFromInt(@intFromBool(op1 < op2)),
+                            .GtrEql => @floatFromInt(@intFromBool(op1 >= op2)),
+                            .LesEql => @floatFromInt(@intFromBool(op1 <= op2)),
+                            .NotEql => @floatFromInt(@intFromBool(op1 != op2)),
                             else => 0.0,
                         };
                         try opStack.append(self.alloc, .{ .Float, @bitCast(res) });
@@ -111,11 +123,48 @@ pub const Interpreter = struct {
                             .Div => @divTrunc(op1, op2),
                             .Mul => op1 * op2,
                             .Mod => @mod(op1, op2),
+                            .Eql => @intFromBool(op1 == op2),
+                            .Gtr => @intFromBool(op1 > op2),
+                            .Les => @intFromBool(op1 < op2),
+                            .GtrEql => @intFromBool(op1 >= op2),
+                            .LesEql => @intFromBool(op1 <= op2),
+                            .NotEql => @intFromBool(op1 != op2),
                             else => 0,
                         };
                         try opStack.append(self.alloc, .{ .Int, @bitCast(res) });
                     }
                     idx += 1;
+                },
+                .Jmp => {
+                    idx += 1;
+                    var bytes = insts[idx .. idx + 8];
+                    const op: u64 = std.mem.readInt(u64, bytes[0..8], .little);
+                    idx += 8;
+                    idx = op;
+                },
+                .JmpIfZero => {
+                    idx += 1;
+                    var bytes = insts[idx .. idx + 8];
+                    const op: u64 = std.mem.readInt(u64, bytes[0..8], .little);
+                    idx += 8;
+                    if (opStack.pop()) |p| {
+                        switch (p.@"0") {
+                            .Int => {
+                                const x: i64 = @bitCast(p.@"1");
+                                if (x == 0)
+                                    idx = op;
+                            },
+                            .Float => {
+                                const x: i64 = @bitCast(p.@"1");
+                                if (x == 0)
+                                    idx = op;
+                            },
+                            .Str => {
+                                if (self.moduleIR.constPool.items[op] == 0)
+                                    idx = op;
+                            },
+                        }
+                    } else return error.emptyStack;
                 },
                 // Push instructions
                 .PushInt => {
@@ -125,7 +174,7 @@ pub const Interpreter = struct {
                     idx += 1;
                     var bytes = insts[idx .. idx + 8];
                     const op: u64 = std.mem.readInt(u64, bytes[0..8], .little);
-                    idx += 7;
+                    idx += 8;
 
                     if (addressMode == 0)
                         try opStack.append(self.alloc, .{ .Int, op })
@@ -133,7 +182,6 @@ pub const Interpreter = struct {
                         try opStack.append(self.alloc, .{ .Str, op })
                     else
                         try opStack.append(self.alloc, idfStack.items[currIdfOffset + op]);
-                    idx += 1;
                 },
                 .PushFloat => {
                     idx += 1;
@@ -142,13 +190,12 @@ pub const Interpreter = struct {
                     idx += 1;
                     const bytes = insts[idx .. idx + 8];
                     const op: u64 = std.mem.readInt(u64, bytes[0..8], .little);
-                    idx += 7;
+                    idx += 8;
 
                     if (addressMode == 0)
                         try opStack.append(self.alloc, .{ .Float, op })
                     else
                         try opStack.append(self.alloc, idfStack.items[currIdfOffset + op]);
-                    idx += 1;
                 },
 
                 // Stack / control
@@ -156,7 +203,7 @@ pub const Interpreter = struct {
                     idx += 1;
                     const bytes = insts[idx .. idx + 8];
                     const op: u64 = std.mem.readInt(u64, bytes[0..8], .little);
-                    idx += 7;
+                    idx += 8;
 
                     const popped = if (opStack.pop()) |p| p //
                         else return error.emptyStack;
@@ -168,7 +215,7 @@ pub const Interpreter = struct {
                             idfStack.items[currIdfOffset + op].@"1" = @bitCast(fl);
                         }
                     } else {
-                        if (popped.@"0" == .Int) {
+                        if (popped.@"0" == .Int or popped.@"0" == .Str) {
                             idfStack.items[currIdfOffset + op].@"1" = popped.@"1";
                         } else {
                             const fl: f64 = @bitCast(popped.@"1");
@@ -176,7 +223,6 @@ pub const Interpreter = struct {
                             idfStack.items[currIdfOffset + op].@"1" = @bitCast(int);
                         }
                     }
-                    idx += 1;
                 },
                 .Call => {
                     idx += 1;
@@ -205,6 +251,11 @@ pub const Interpreter = struct {
                     try idfStack.append(self.alloc, .{ .Int, 0 });
                     idx += 1;
                 },
+                .DefStr => {
+                    try idfStack.append(self.alloc, .{ .Str, 0 });
+                    idx += 1;
+                },
+
                 .DefFloat => {
                     try idfStack.append(self.alloc, .{ .Float, 0 });
                     idx += 1;

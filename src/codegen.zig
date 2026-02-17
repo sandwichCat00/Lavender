@@ -11,6 +11,12 @@ pub const OPCode = enum(u8) {
     Div = 2,
     Mul = 3,
     Mod = 4,
+    Eql = 5,
+    Gtr = 6,
+    Les = 7,
+    GtrEql = 8,
+    LesEql = 9,
+    NotEql = 10,
 
     PushInt = 17,
     PushFloat = 18,
@@ -18,7 +24,11 @@ pub const OPCode = enum(u8) {
 
     DefInt = 21,
     DefFloat = 22,
-    Undef = 23,
+    DefStr = 23,
+    Undef = 24,
+
+    Jmp = 30,
+    JmpIfZero = 31,
 
     Call = 54,
     Ret = 55,
@@ -55,6 +65,7 @@ pub const ModuleIR = struct {
         const insts = self.instructions.items;
         while (idx < insts.len) {
             const opCode: OPCode = @enumFromInt(insts[idx]);
+            std.debug.print("{x:0>4}: ", .{idx});
             switch (opCode) {
                 // Arithmetic (no operands)
                 .Add => std.debug.print("Add\n", .{}),
@@ -62,6 +73,12 @@ pub const ModuleIR = struct {
                 .Div => std.debug.print("Div\n", .{}),
                 .Mul => std.debug.print("Mul\n", .{}),
                 .Mod => std.debug.print("Mod\n", .{}),
+                .Eql => std.debug.print("Eql\n", .{}),
+                .Gtr => std.debug.print("Gtr\n", .{}),
+                .Les => std.debug.print("Les\n", .{}),
+                .GtrEql => std.debug.print("GtrEql\n", .{}),
+                .LesEql => std.debug.print("LesEql\n", .{}),
+                .NotEql => std.debug.print("NotEql\n", .{}),
 
                 // Push instructions
                 .PushInt => {
@@ -100,6 +117,23 @@ pub const ModuleIR = struct {
                         );
                 },
 
+                .JmpIfZero => {
+                    idx += 1;
+                    const bytes = insts[idx .. idx + 8];
+                    const op: u64 = std.mem.readInt(u64, bytes[0..8], .little);
+                    idx += 7;
+
+                    std.debug.print("JmpIfZero {x}\n", .{op});
+                },
+
+                .Jmp => {
+                    idx += 1;
+                    const bytes = insts[idx .. idx + 8];
+                    const op: u64 = std.mem.readInt(u64, bytes[0..8], .little);
+                    idx += 7;
+
+                    std.debug.print("Zmp {x}\n", .{op});
+                },
                 // Stack / control
                 .Pop => {
                     idx += 1;
@@ -125,6 +159,7 @@ pub const ModuleIR = struct {
                 // Definitions
                 .DefInt => std.debug.print("DefInt\n", .{}),
                 .DefFloat => std.debug.print("DefFloat\n", .{}),
+                .DefStr => std.debug.print("DefStr\n", .{}),
                 .Undef => std.debug.print("Undef\n", .{}),
             }
 
@@ -238,8 +273,16 @@ pub const CodeGen = struct {
 
     fn add(self: *@This(), opCode: OPCode, op: u64, addressMode: u8) !void {
         switch (opCode) {
-            .Add, .Sub, .Div, .Mod, .Mul => {
+            .Add, .Sub, .Div, .Mod, .Mul, .Eql, .Gtr, .Les, .GtrEql, .LesEql, .NotEql => {
                 try self.moduleIr.instructions.append(self.alloc, @intFromEnum(opCode));
+            },
+            .JmpIfZero => {
+                try self.moduleIr.instructions.append(self.alloc, @intFromEnum(opCode));
+                try self.moduleIr.instructions.appendSlice(self.alloc, std.mem.asBytes(&op));
+            },
+            .Jmp => {
+                try self.moduleIr.instructions.append(self.alloc, @intFromEnum(opCode));
+                try self.moduleIr.instructions.appendSlice(self.alloc, std.mem.asBytes(&op));
             },
 
             .PushInt, .PushFloat => {
@@ -262,7 +305,7 @@ pub const CodeGen = struct {
             },
 
             // Definitions
-            .DefInt, .DefFloat, .Undef => {
+            .DefInt, .DefFloat, .DefStr, .Undef => {
                 try self.moduleIr.instructions.append(self.alloc, @intFromEnum(opCode));
             },
         }
@@ -583,9 +626,12 @@ pub const CodeGen = struct {
                     .DivOp => try self.add(.Div, 0, 0),
                     .ModOp => try self.add(.Mod, 0, 0),
 
-                    // .IsEqlOp => add("cmp_eq"),
-                    // .IsGrterOp => add("cmp_gt"),
-                    // .IsLessOp => add("cmp_lt"),
+                    .IsEqlOp => try self.add(.Eql, 0, 0),
+                    .IsGrterOp => try self.add(.Gtr, 0, 0),
+                    .IsLessOp => try self.add(.Les, 0, 0),
+                    .IsGtrEql => try self.add(.GtrEql, 0, 0),
+                    .IsLesEql => try self.add(.LesEql, 0, 0),
+                    .IsNotEql => try self.add(.NotEql, 0, 0),
 
                     else => {},
                 }
@@ -597,6 +643,86 @@ pub const CodeGen = struct {
                     try self.addExp(node.children.items[0], .PushInt);
                     try self.add(.Sub, 0, 0);
                 },
+                else => {},
+            }
+        }
+    }
+
+    pub fn genStats(self: *@This(), stats: std.ArrayList(ast.Statement), def: ast.DefDecl) !void {
+        for (stats.items) |stat| {
+            switch (stat) {
+                .Exp => |x| {
+                    try self.addExp(x, .PushInt);
+                },
+                .Ret => |x| {
+                    try self.addExp(x, .PushInt);
+                    for (0..self.funcIdfs) |_| {
+                        _ = self.idfLookUpTable.pop();
+                        try self.add(.Undef, self.idfLookUpTable.items.len, 1);
+                    }
+                    self.funcIdfs = 0;
+
+                    try self.add(.Ret, 0, 0);
+                },
+                .Let => |x| {
+                    var idfStack: std.ArrayList(struct { []const u8, lexeme.TokenKind }) = .empty;
+                    defer idfStack.deinit(self.alloc);
+                    for (def.parameters.items) |par| {
+                        var parName: []const u8 = "";
+                        switch (par.identifier.kind) {
+                            .Identifier => |s| parName = s,
+                            else => {},
+                        }
+                        for (idfStack.items) |p| {
+                            if (std.mem.eql(u8, p.@"0", parName)) {
+                                return error.SameParName;
+                            }
+                        }
+                        try idfStack.append(self.alloc, .{ parName, par.type.kind });
+                    }
+                    const typ = try checkType(x.children.items[1], self.mod.functions, &idfStack, false);
+
+                    const dt: DataType = switch (typ) {
+                        .FloatType => .Float,
+                        .StrType => .Str,
+                        else => .Int,
+                    };
+                    const op: OPCode = switch (typ) {
+                        .FloatType => .DefFloat,
+                        .StrType => .DefStr,
+                        else => .DefInt,
+                    };
+
+                    switch (x.children.items[0].tok.kind) {
+                        .Identifier => |s| try self.idfLookUpTable.append(self.alloc, .{ s, dt }),
+                        else => {},
+                    }
+                    self.funcIdfs += 1;
+                    try self.add(op, self.idfLookUpTable.items.len - 1, 1);
+                    try self.addExp(x.children.items[1], .PushInt);
+                    try self.addExp(x.children.items[0], .Pop);
+                },
+                .If => |x| {
+                    try self.addExp(x.condition, .PushInt);
+                    var initIdx = self.moduleIr.instructions.items.len + 1;
+                    try self.add(.JmpIfZero, 0, 0);
+                    try self.genStats(x.stats, def);
+                    var exitIfIdx = self.moduleIr.instructions.items.len + 1;
+                    try self.add(.Jmp, 0, 0);
+                    var byte = std.mem.asBytes(&self.moduleIr.instructions.items.len);
+                    for (byte) |byt| {
+                        self.moduleIr.instructions.items[initIdx] = byt;
+                        initIdx += 1;
+                    }
+                    try self.genStats(x.els, def);
+
+                    byte = std.mem.asBytes(&self.moduleIr.instructions.items.len);
+                    for (byte) |byt| {
+                        self.moduleIr.instructions.items[exitIfIdx] = byt;
+                        exitIfIdx += 1;
+                    }
+                },
+
                 else => {},
             }
         }
@@ -632,10 +758,12 @@ pub const CodeGen = struct {
             for (def.parameters.items) |par| {
                 const op: OPCode = switch (par.type.kind) {
                     .FloatType => .DefFloat,
+                    .StrType => .DefStr,
                     else => .DefInt,
                 };
                 const dt: DataType = switch (par.type.kind) {
                     .FloatType => .Float,
+                    .StrType => .Str,
                     else => .Int,
                 };
 
@@ -647,58 +775,19 @@ pub const CodeGen = struct {
                 self.funcIdfs += 1;
                 try self.add(.Pop, self.idfLookUpTable.items.len - 1, 1);
             }
-            for (def.statements.items) |stat| {
-                switch (stat) {
-                    .Exp => |x| {
-                        try self.addExp(x, .PushInt);
-                    },
-                    .Ret => |x| {
-                        try self.addExp(x, .PushInt);
-                        for (0..self.funcIdfs) |_| {
-                            _ = self.idfLookUpTable.pop();
-                            try self.add(.Undef, self.idfLookUpTable.items.len, 1);
-                        }
-                        self.funcIdfs = 0;
+            try self.genStats(def.statements, def);
+            const xx: u8 = @intFromEnum(OPCode.Ret);
+            if (self.moduleIr.instructions.items[self.moduleIr.instructions.items.len - 1] != xx) {
+                if (def.dtype != .VoidType)
+                    return error.NoReturn
+                else {
+                    for (0..self.funcIdfs) |_| {
+                        _ = self.idfLookUpTable.pop();
+                        try self.add(.Undef, self.idfLookUpTable.items.len, 1);
+                    }
+                    self.funcIdfs = 0;
 
-                        try self.add(.Ret, 0, 0);
-                    },
-                    .Let => |x| {
-                        var idfStack: std.ArrayList(struct { []const u8, lexeme.TokenKind }) = .empty;
-                        defer idfStack.deinit(self.alloc);
-                        for (def.parameters.items) |par| {
-                            var parName: []const u8 = "";
-                            switch (par.identifier.kind) {
-                                .Identifier => |s| parName = s,
-                                else => {},
-                            }
-                            for (idfStack.items) |p| {
-                                if (std.mem.eql(u8, p.@"0", parName)) {
-                                    return error.SameParName;
-                                }
-                            }
-                            try idfStack.append(self.alloc, .{ parName, par.type.kind });
-                        }
-                        const typ = try checkType(x.children.items[1], self.mod.functions, &idfStack, false);
-
-                        const dt: DataType = switch (typ) {
-                            .FloatType => .Float,
-                            else => .Int,
-                        };
-                        const op: OPCode = switch (typ) {
-                            .FloatType => .DefFloat,
-                            else => .DefInt,
-                        };
-
-                        switch (x.children.items[0].tok.kind) {
-                            .Identifier => |s| try self.idfLookUpTable.append(self.alloc, .{ s, dt }),
-                            else => {},
-                        }
-                        self.funcIdfs += 1;
-                        try self.add(op, self.idfLookUpTable.items.len - 1, 1);
-                        try self.addExp(x.children.items[1], .PushInt);
-                        try self.addExp(x.children.items[0], .Pop);
-                    },
-                    else => {},
+                    try self.add(.Ret, 0, 0);
                 }
             }
         }

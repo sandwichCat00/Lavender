@@ -57,6 +57,9 @@ pub const TokenKind = union(enum) {
     IsEqlOp,
     IsGrterOp,
     IsLessOp,
+    IsGtrEql,
+    IsLesEql,
+    IsNotEql,
 
     SignSubOp,
     Unset,
@@ -124,6 +127,9 @@ pub const TokenKind = union(enum) {
             .IsEqlOp => alloc.dupe(u8, "==") catch "error",
             .IsGrterOp => alloc.dupe(u8, ">") catch "error",
             .IsLessOp => alloc.dupe(u8, "<") catch "error",
+            .IsLesEql => alloc.dupe(u8, "<=") catch "error",
+            .IsGtrEql => alloc.dupe(u8, ">=") catch "error",
+            .IsNotEql => alloc.dupe(u8, "!=") catch "error",
 
             .DefCall => |x| std.fmt.allocPrint(alloc, "{s}()", .{x}) catch "error",
             .Unset => alloc.dupe(u8, "<UNSET>") catch "error",
@@ -133,7 +139,7 @@ pub const TokenKind = union(enum) {
     pub fn prec(self: @This()) u8 {
         return switch (self) {
             .EqlOp, .SubEqlOp, .AddEqlOp, .MulEqlOp, .DivEqlOp, .ModEqlOp => 1,
-            .IsEqlOp, .IsGrterOp, .IsLessOp => 4,
+            .IsEqlOp, .IsGtrEql, .IsLesEql, .IsNotEql, .IsGrterOp, .IsLessOp => 4,
             .AddOp, .SubOp => 5,
             .MulOp, .DivOp, .ModOp => 10,
             else => 0,
@@ -170,7 +176,7 @@ pub const TokenKind = union(enum) {
         return switch (self) {
             .EqlOp, .AddEqlOp, .SubEqlOp, .MulEqlOp, .DivEqlOp, .ModEqlOp => true,
             .AddOp, .SubOp, .MulOp, .DivOp, .ModOp => true,
-            .IsEqlOp, .IsGrterOp, .IsLessOp => true,
+            .IsEqlOp, .IsGrterOp, .IsLessOp, .IsGtrEql, .IsLesEql, .IsNotEql => true,
             else => false,
         };
     }
@@ -294,8 +300,20 @@ pub fn getSymbol(src: []const u8, idx: *usize) !Token {
             }
             break :lp .EqlOp;
         },
-        '>' => .IsGrterOp,
-        '<' => .IsLessOp,
+        '>' => lp: {
+            if (idx.* < src.len and src[idx.* + 1] == '=') {
+                idx.* += 1;
+                return .{ .kind = .IsGtrEql, .idx = idx.* - 1 };
+            }
+            break :lp .IsGrterOp;
+        },
+        '<' => lp: {
+            if (idx.* < src.len and src[idx.* + 1] == '=') {
+                idx.* += 1;
+                return .{ .kind = .IsLesEql, .idx = idx.* - 1 };
+            }
+            break :lp .IsLessOp;
+        },
 
         else => return error.InvalidChar,
     };

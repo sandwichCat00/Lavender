@@ -1,0 +1,11 @@
+def main() void {
+  let x = toInt(input("Enter a No: "));
+    while (x < 10) {
+        println("{}", x);
+        x += 1;
+    } else {
+        println("x is greater than or eql to 10");
+    } 
+
+  return;
+  }

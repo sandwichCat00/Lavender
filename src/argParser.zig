@@ -6,6 +6,7 @@ pub const ArgParser = struct {
     output: []const u8 = "./lav-out/",
     run: bool = false,
     compile: bool = true,
+    printAsm: bool = false,
 
     fn help() void {
         std.debug.print(
@@ -15,6 +16,7 @@ pub const ArgParser = struct {
             \\  -h, --help        Show this help
             \\  -o <path>         Output dir path 
             \\  --run             Run after compilation
+            \\  -P, --print-asm   print bytecode assembly
             \\
         , .{});
     }
@@ -39,6 +41,8 @@ pub const ArgParser = struct {
                     std.process.exit(1);
                 };
                 ret.output = try alloc.dupe(u8, out);
+            } else if (std.mem.eql(u8, arg, "-P") or std.mem.eql(u8, arg, "--print-asm")) {
+                ret.printAsm = true;
             } else if (arg.len > 0 and arg[0] == '-') {
                 err("", "", 0, "Unknown option: {s}", .{arg});
                 help();

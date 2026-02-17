@@ -43,8 +43,10 @@ pub fn main() !void {
         defer codeGen.deinit();
         try codeGen.sanityCheck();
         try codeGen.gen();
-        // try codeGen.moduleIr.print();
-        // std.debug.print("----\n", .{});
+        if (args.printAsm) {
+            try codeGen.moduleIr.print();
+            std.debug.print("----\n", .{});
+        }
         try codeGen.printToFile(args.fileName, args.output);
     }
     if (args.run) {

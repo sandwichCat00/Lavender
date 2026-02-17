@@ -76,8 +76,6 @@ fn printCall(
     }
 }
 
-const xCount: u8 = 0;
-
 fn inputCall(
     opStack: *std.ArrayList(struct { DataType, u64 }),
     constPool: *std.ArrayList(u8),

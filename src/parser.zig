@@ -54,7 +54,7 @@ pub const Parser = struct {
                 .{},
             );
         }
-        var defDecl = ast.DefDecl.init();
+        var defDecl: ast.DefDecl = .{};
         switch (stat[self.tokIdx].kind) {
             .Identifier => defDecl.name = try stat[self.tokIdx].toOwned(self.alloc),
             else => err(

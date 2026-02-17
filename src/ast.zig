@@ -116,22 +116,12 @@ pub const Statement = union(enum) {
 };
 
 pub const DefDecl = struct {
-    name: lexeme.Token,
-    dtype: lexeme.TokenKind,
-    varLen: bool,
-    parameters: std.ArrayList(struct { identifier: lexeme.Token, type: lexeme.Token }),
-    statements: std.ArrayList(Statement),
+    name: lexeme.Token = .{ .idx = 0, .kind = .Unset },
+    dtype: lexeme.TokenKind = .Unset,
+    varLen: bool = false,
+    parameters: std.ArrayList(struct { identifier: lexeme.Token, type: lexeme.Token }) = .empty,
+    statements: std.ArrayList(Statement) = .empty,
     isBuiltIn: bool = false,
-
-    pub fn init() @This() {
-        return .{
-            .name = .{ .idx = 0, .kind = .Unset },
-            .varLen = false,
-            .statements = .empty,
-            .parameters = .empty,
-            .dtype = .Unset,
-        };
-    }
 };
 
 pub const Module = struct {
@@ -175,6 +165,8 @@ pub const Module = struct {
         }
         self.imports.deinit(alloc);
         for (self.functions.items) |*fun| {
+            if (fun.isBuiltIn == true)
+                continue;
             fun.name.deinit(alloc);
             for (fun.parameters.items) |*st| {
                 st.identifier.deinit(alloc);

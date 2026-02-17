@@ -3,130 +3,53 @@ const lexer = @import("lexer.zig");
 const lexeme = @import("lexeme.zig");
 const ast = @import("ast.zig");
 const Parser = @import("parser.zig").Parser;
+const builtin = @import("builtin.zig");
 
-const OPCode = enum(u8) {
+pub const OPCode = enum(u8) {
     Add = 0,
     Sub = 1,
     Div = 2,
     Mul = 3,
     Mod = 4,
 
-    Pushi8 = 16,
-    Pushi64 = 17,
-    Pushf64 = 18,
+    PushInt = 17,
+    PushFloat = 18,
     Pop = 19,
 
-    Defi8 = 20,
-    Defi64 = 21,
-    Deff64 = 22,
+    DefInt = 21,
+    DefFloat = 22,
     Undef = 23,
 
     Call = 54,
     Ret = 55,
 };
-const DataType = enum(u8) {
-    U8,
-    U64,
-    F64,
+pub const DataType = enum(u8) {
+    Int,
+    Float,
+    Str,
 };
 
-const ModuleIR = struct {
+pub const ModuleIR = struct {
     funcTable: std.ArrayList(struct { usize, []const u8 }) = .empty,
     mainIdx: usize = 0,
-    constPull: std.ArrayList(u8) = .empty,
+    constPool: std.ArrayList(u8) = .empty,
     instructions: std.ArrayList(u8) = .empty,
-};
 
-// WARN:
-// 0. immediate, 1. Data Addr, 2. Const Addr
-// for lavb files
-// 4 bytes -> functionListSize
-// x bytes -> [ 4 bytes address, 4 bytes idx  ]
-// 4 bytes -> main idx (gotta "- 1" as idx 0 = no main)
-// 4 bytes -> const poll size
-// x bytes -> const poll
-// x bytes -> instructions
-const CodeGen = struct {
-    mod: ast.Module,
-    src: []const u8,
-    alloc: std.mem.Allocator,
-    moduleIr: ModuleIR = .{},
-
-    idfLookUpTable: std.ArrayList(struct { []const u8, DataType }) = .empty,
-    funcIdfs: usize = 0,
-
-    pub var builtInFuncs = [_]ast.DefDecl{
-        .{
-            .name = .{ .kind = .{ .Identifier = "print" }, .idx = 0 },
-            .dtype = .VoidType,
-            .varLen = true,
-            .parameters = .empty,
-            .statements = .empty,
-            .isBuiltIn = true,
-        },
-        .{
-            .name = .{ .kind = .{ .Identifier = "println" }, .idx = 0 },
-            .dtype = .VoidType,
-            .varLen = true,
-            .parameters = .empty,
-            .statements = .empty,
-            .isBuiltIn = true,
-        },
-        .{
-            .name = .{ .kind = .{ .Identifier = "input" }, .idx = 0 },
-            .dtype = .StrType,
-            .varLen = false,
-            .parameters = .empty,
-            .statements = .empty,
-            .isBuiltIn = true,
-        },
-        .{
-            .name = .{ .kind = .{ .Identifier = "toInt" }, .idx = 0 },
-            .dtype = .IntType,
-            .varLen = true,
-            .parameters = .empty,
-            .statements = .empty,
-            .isBuiltIn = true,
-        },
-    };
-
-    pub fn printToFile(self: *@This()) !void {
-        const cwd = std.fs.cwd();
-        try cwd.makePath("./lav-out/");
-        const outFile = try cwd.createFile("./lav-out/main.lavb", .{});
-        try outFile.writeAll(std.mem.asBytes(&self.moduleIr.funcTable.items.len));
-
-        var mainIdx: usize = 0;
-
-        for (self.moduleIr.funcTable.items, 0..) |fun, idx| {
-            try outFile.writeAll(std.mem.asBytes(&fun.@"0"));
-            try outFile.writeAll(std.mem.asBytes(&idx));
-            if (std.mem.eql(u8, fun.@"1", "main")) {
-                mainIdx = idx + 1;
-            }
-        }
-        try outFile.writeAll(std.mem.asBytes(&mainIdx));
-        try outFile.writeAll(std.mem.asBytes(&self.moduleIr.constPull.items.len));
-        try outFile.writeAll(self.moduleIr.constPull.items);
-        const insts = self.moduleIr.instructions.items;
-        try outFile.writeAll(insts);
-    }
-
-    pub fn print(self: *@This()) !void {
+    pub fn print(self: @This()) !void {
         std.debug.print("# fn table:\n", .{});
-        for (self.moduleIr.funcTable.items, 0..) |fun, idx| {
+        for (self.funcTable.items, 0..) |fun, idx| {
             std.debug.print("{s} : {x:0>4} -> {d}\n", .{ fun.@"1", fun.@"0", idx });
         }
         std.debug.print("\n# const table:\n", .{});
         std.debug.print("{x:0>4}: ", .{0});
-        for (self.moduleIr.constPull.items, 0..) |cIdx, idx| {
+        for (self.constPool.items, 0..) |cIdx, idx| {
             if (cIdx == 0)
                 std.debug.print("\n{x:0>4}: ", .{idx + 1});
             std.debug.print("{c}", .{cIdx});
         }
         std.debug.print("\n\n# instructions:\n", .{});
         var idx: usize = 0;
-        const insts = self.moduleIr.instructions.items;
+        const insts = self.instructions.items;
         while (idx < insts.len) {
             const opCode: OPCode = @enumFromInt(insts[idx]);
             switch (opCode) {
@@ -138,17 +61,7 @@ const CodeGen = struct {
                 .Mod => std.debug.print("Mod\n", .{}),
 
                 // Push instructions
-                .Pushi8 => {
-                    idx += 1;
-                    const addressMode = insts[idx];
-                    idx += 1;
-                    const val: u8 = insts[idx];
-                    std.debug.print(
-                        "Pushi8   mode={d} value={d}\n",
-                        .{ addressMode, val },
-                    );
-                },
-                .Pushi64 => {
+                .PushInt => {
                     idx += 1;
                     const addressMode = insts[idx];
 
@@ -162,7 +75,7 @@ const CodeGen = struct {
                     else
                         std.debug.print("Pushi64  mode={d} value={x}\n", .{ addressMode, op });
                 },
-                .Pushf64 => {
+                .PushFloat => {
                     idx += 1;
                     const addressMode = insts[idx];
 
@@ -174,12 +87,12 @@ const CodeGen = struct {
                     const val: f64 = @bitCast(op);
                     if (addressMode == 0)
                         std.debug.print(
-                            "Pushf64  mode={d} value={d}\n",
+                            "PushFloat mode={d} value={d}\n",
                             .{ addressMode, val },
                         )
                     else
                         std.debug.print(
-                            "Pushf64  mode={d} value={d}\n",
+                            "PushFloat mode={d} value={d}\n",
                             .{ addressMode, op },
                         );
                 },
@@ -207,35 +120,52 @@ const CodeGen = struct {
                 .Ret => std.debug.print("Ret\n", .{}),
 
                 // Definitions
-                .Defi8 => std.debug.print("Defi8\n", .{}),
-                .Defi64 => std.debug.print("Defi64\n", .{}),
-                .Deff64 => std.debug.print("Deff64\n", .{}),
+                .DefInt => std.debug.print("DefInt\n", .{}),
+                .DefFloat => std.debug.print("DefFloat\n", .{}),
                 .Undef => std.debug.print("Undef\n", .{}),
             }
 
             idx += 1;
         }
     }
+};
 
-    fn initBuiltInFunc(alloc: std.mem.Allocator) !void {
-        for (&builtInFuncs) |*def| {
-            switch (def.name.kind) {
-                .Identifier => |s| {
-                    if (std.mem.eql(u8, s, "input")) {
-                        try def.parameters.append(
-                            alloc,
-                            .{ .identifier = .{
-                                .idx = 0,
-                                .kind = .{
-                                    .Identifier = "prompt",
-                                },
-                            }, .type = .{ .idx = 0, .kind = .StrType } },
-                        );
-                    }
-                },
-                else => {},
+// WARN:
+// 0. immediate, 1. Data Addr, 2. Const Addr
+// for lavb files
+// 8 bytes -> functionListSize
+// x bytes -> [ 8 bytes address ]
+// 8 bytes -> main idx (gotta "- 1" as idx 0 = no main)
+// 8 bytes -> const poll size
+// x bytes -> const poll
+// x bytes -> instructions
+const CodeGen = struct {
+    mod: ast.Module,
+    src: []const u8,
+    alloc: std.mem.Allocator,
+    moduleIr: ModuleIR = .{},
+
+    idfLookUpTable: std.ArrayList(struct { []const u8, DataType }) = .empty,
+    funcIdfs: usize = 0,
+    pub fn printToFile(self: *@This()) !void {
+        const cwd = std.fs.cwd();
+        try cwd.makePath("./lav-out/");
+        const outFile = try cwd.createFile("./lav-out/main.lavb", .{});
+        try outFile.writeAll(std.mem.asBytes(&self.moduleIr.funcTable.items.len));
+
+        var mainIdx: usize = 0;
+
+        for (self.moduleIr.funcTable.items, 0..) |fun, idx| {
+            try outFile.writeAll(std.mem.asBytes(&fun.@"0"));
+            if (std.mem.eql(u8, fun.@"1", "main")) {
+                mainIdx = idx + 1;
             }
         }
+        try outFile.writeAll(std.mem.asBytes(&mainIdx));
+        try outFile.writeAll(std.mem.asBytes(&self.moduleIr.constPool.items.len));
+        try outFile.writeAll(self.moduleIr.constPool.items);
+        const insts = self.moduleIr.instructions.items;
+        try outFile.writeAll(insts);
     }
 
     fn isInteger(t: lexeme.TokenKind) bool {
@@ -286,7 +216,7 @@ const CodeGen = struct {
 
     pub fn deinit(self: *@This()) void {
         self.idfLookUpTable.deinit(self.alloc);
-        self.moduleIr.constPull.deinit(self.alloc);
+        self.moduleIr.constPool.deinit(self.alloc);
         self.moduleIr.instructions.deinit(self.alloc);
         self.moduleIr.funcTable.deinit(self.alloc);
     }
@@ -297,12 +227,7 @@ const CodeGen = struct {
                 try self.moduleIr.instructions.append(self.alloc, @intFromEnum(opCode));
             },
 
-            .Pushi8 => {
-                try self.moduleIr.instructions.append(self.alloc, @intFromEnum(OPCode.Pushi8));
-                try self.moduleIr.instructions.append(self.alloc, addressMode);
-                try self.moduleIr.instructions.append(self.alloc, @truncate(op));
-            },
-            .Pushi64, .Pushf64 => {
+            .PushInt, .PushFloat => {
                 try self.moduleIr.instructions.append(self.alloc, @intFromEnum(opCode));
                 try self.moduleIr.instructions.append(self.alloc, addressMode);
                 try self.moduleIr.instructions.appendSlice(self.alloc, std.mem.asBytes(&op));
@@ -322,15 +247,15 @@ const CodeGen = struct {
             },
 
             // Definitions
-            .Defi8, .Defi64, .Deff64, .Undef => {
+            .DefInt, .DefFloat, .Undef => {
                 try self.moduleIr.instructions.append(self.alloc, @intFromEnum(opCode));
             },
         }
     }
     fn addConst(self: *@This(), c: []const u8) !u64 {
-        const x = self.moduleIr.constPull.items.len;
-        try self.moduleIr.constPull.appendSlice(self.alloc, c);
-        try self.moduleIr.constPull.append(self.alloc, 0);
+        const x = self.moduleIr.constPool.items.len;
+        try self.moduleIr.constPool.appendSlice(self.alloc, c);
+        try self.moduleIr.constPool.append(self.alloc, 0);
         return x;
     }
 
@@ -389,6 +314,16 @@ const CodeGen = struct {
                                     false,
                                 ));
                                 if (!sameType(promote(par.type.kind), rhsType) and !(isNumeric(par.type.kind) and isNumeric(rhsType))) {
+                                    std.debug.print("{s} {s} {s} {s}\n", .{
+                                        s,
+                                        x,
+                                        par.type.toStr(std.heap.page_allocator),
+                                        rhsType.toStr(std.heap.page_allocator),
+                                    });
+                                    for (idfLookupTable.items) |value| {
+                                        std.debug.print("{s} {s}\n", .{ value.@"0", value.@"1".toStr(std.heap.page_allocator) });
+                                    }
+
                                     return error.InvalidArgumentType;
                                 }
                                 idx += 1;
@@ -562,11 +497,11 @@ const CodeGen = struct {
             .Identifier => |s| {
                 for (self.idfLookUpTable.items, 0..) |idf, idx| {
                     if (std.mem.eql(u8, s, idf.@"0")) {
-                        const opData: OPCode = if (opCode == .Pushi8)
+                        const opData: OPCode = if (opCode == .PushInt)
                             switch (idf.@"1") {
-                                .U8 => .Pushi8,
-                                .U64 => .Pushi64,
-                                .F64 => .Pushf64,
+                                .Int => .PushInt,
+                                .Float => .PushFloat,
+                                .Str => .PushInt,
                             }
                         else
                             opCode;
@@ -576,29 +511,26 @@ const CodeGen = struct {
                 }
             },
             .IntLiteral => |i| {
-                var opData = opCode;
-                if (opCode == .Pushi8)
-                    opData = .Pushi64;
-
-                try self.add(opData, i, 0);
+                try self.add(opCode, i, 0);
             },
             .FloatLiteral => |f| {
-                var opData = opCode;
-                if (opCode == .Pushi8)
-                    opData = .Pushf64;
+                const opData: OPCode = if (opCode == .PushInt)
+                    .PushFloat
+                else
+                    opCode;
+
                 try self.add(opData, @bitCast(f), 0);
             },
             .StrLiteral => |s| {
                 const idx = try self.addConst(s);
 
-                var opData = opCode;
-                if (opCode == .Pushi8)
-                    opData = .Pushi64;
-                try self.add(opData, idx, 2);
+                try self.add(opCode, idx, 2);
             },
             .DefCall => |d| {
-                for (node.children.items) |children| {
-                    try self.addExp(children, .Pushi8);
+                var x = node.children.items.len;
+                while (x > 0) {
+                    try self.addExp(node.children.items[x - 1], .PushInt);
+                    x -= 1;
                 }
                 for (self.moduleIr.funcTable.items, 0..) |func, idx| {
                     if (std.mem.eql(u8, d, func.@"1")) {
@@ -611,11 +543,11 @@ const CodeGen = struct {
         if (node.tok.kind.isBinOp()) {
             if (node.tok.kind.isEqlOp()) {
                 if (node.tok.kind == .EqlOp) {
-                    try self.addExp(node.children.items[1], .Pushi8);
+                    try self.addExp(node.children.items[1], .PushInt);
                     try self.addExp(node.children.items[0], .Pop);
                 } else {
-                    try self.addExp(node.children.items[0], .Pushi8);
-                    try self.addExp(node.children.items[1], .Pushi8);
+                    try self.addExp(node.children.items[0], .PushInt);
+                    try self.addExp(node.children.items[1], .PushInt);
                     switch (node.tok.kind) {
                         .AddEqlOp => try self.add(.Add, 0, 0),
                         .SubEqlOp => try self.add(.Sub, 0, 0),
@@ -628,8 +560,8 @@ const CodeGen = struct {
                     try self.addExp(node.children.items[0], .Pop);
                 }
             } else {
-                try self.addExp(node.children.items[0], .Pushi8);
-                try self.addExp(node.children.items[1], .Pushi8);
+                try self.addExp(node.children.items[0], .PushInt);
+                try self.addExp(node.children.items[1], .PushInt);
                 switch (node.tok.kind) {
                     .AddOp => try self.add(.Add, 0, 0),
                     .SubOp => try self.add(.Sub, 0, 0),
@@ -647,8 +579,8 @@ const CodeGen = struct {
         } else if (node.tok.kind.isUniOp()) {
             switch (node.tok.kind) {
                 .SignSubOp => {
-                    try self.add(.Pushf64, 0, 0);
-                    try self.addExp(node.children.items[0], .Pushi8);
+                    try self.add(.PushInt, 0, 0);
+                    try self.addExp(node.children.items[0], .PushInt);
                     try self.add(.Sub, 0, 0);
                 },
                 else => {},
@@ -685,20 +617,12 @@ const CodeGen = struct {
             }
             for (def.parameters.items) |par| {
                 const op: OPCode = switch (par.type.kind) {
-                    .IntType => .Defi64,
-                    .BoolType => .Defi8,
-                    .CharType => .Defi8,
-                    .FloatType => .Deff64,
-                    .StrType => .Defi64,
-                    else => .Defi8,
+                    .FloatType => .DefFloat,
+                    else => .DefInt,
                 };
                 const dt: DataType = switch (par.type.kind) {
-                    .IntType => .U64,
-                    .BoolType => .U8,
-                    .CharType => .U8,
-                    .FloatType => .F64,
-                    .StrType => .U64,
-                    else => .U8,
+                    .FloatType => .Float,
+                    else => .Int,
                 };
 
                 switch (par.identifier.kind) {
@@ -712,10 +636,10 @@ const CodeGen = struct {
             for (def.statements.items) |stat| {
                 switch (stat) {
                     .Exp => |x| {
-                        try self.addExp(x, .Pushi8);
+                        try self.addExp(x, .PushInt);
                     },
                     .Ret => |x| {
-                        try self.addExp(x, .Pushi8);
+                        try self.addExp(x, .PushInt);
                         for (0..self.funcIdfs) |_| {
                             _ = self.idfLookUpTable.pop();
                             try self.add(.Undef, self.idfLookUpTable.items.len, 1);
@@ -743,20 +667,12 @@ const CodeGen = struct {
                         const typ = try checkType(x.children.items[1], self.mod.functions, &idfStack, false);
 
                         const dt: DataType = switch (typ) {
-                            .IntType => .U64,
-                            .BoolType => .U8,
-                            .CharType => .U8,
-                            .FloatType => .F64,
-                            .StrType => .U64,
-                            else => .U8,
+                            .FloatType => .Float,
+                            else => .Int,
                         };
                         const op: OPCode = switch (typ) {
-                            .IntType => .Defi64,
-                            .BoolType => .Defi8,
-                            .CharType => .Defi8,
-                            .FloatType => .Deff64,
-                            .StrType => .Defi64,
-                            else => .Defi8,
+                            .FloatType => .DefFloat,
+                            else => .DefInt,
                         };
 
                         switch (x.children.items[0].tok.kind) {
@@ -765,7 +681,7 @@ const CodeGen = struct {
                         }
                         self.funcIdfs += 1;
                         try self.add(op, self.idfLookUpTable.items.len - 1, 1);
-                        try self.addExp(x.children.items[1], .Pushi8);
+                        try self.addExp(x.children.items[1], .PushInt);
                         try self.addExp(x.children.items[0], .Pop);
                     },
                     else => {},
@@ -799,9 +715,10 @@ test "import code gen" {
 
     var parser = Parser.init(testing.allocator, src, "fin", stats);
     var mod = try parser.parse();
-    try CodeGen.initBuiltInFunc(testing.allocator);
-    for (CodeGen.builtInFuncs) |def| {
-        try mod.functions.append(testing.allocator, def);
+    try builtin.BuiltInFuncs.init(testing.allocator);
+    defer builtin.BuiltInFuncs.deinit();
+    for (builtin.BuiltInFuncs.defs.items) |def| {
+        try mod.functions.append(testing.allocator, def.@"0");
     }
     defer mod.deinit(testing.allocator);
     lexer.Lexer.deinitStatements(&stats, testing.allocator);
@@ -810,6 +727,7 @@ test "import code gen" {
     defer codeGen.deinit();
     try codeGen.sanityCheck();
     try codeGen.gen();
-    try codeGen.print();
+    try codeGen.moduleIr.print();
+    std.debug.print("----\n", .{});
     try codeGen.printToFile();
 }

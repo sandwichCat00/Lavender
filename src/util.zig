@@ -86,3 +86,21 @@ pub fn err(fName: []const u8, src: []const u8, idx: usize, comptime msg: []const
     }
     std.process.exit(1);
 }
+
+pub fn readU64(src: []const u8, offset: *usize) !u64 {
+    if (offset.* + 8 > src.len)
+        return error.UnexpectedEOF;
+
+    const value = std.mem.readInt(u64, src[offset.* .. offset.* + 8][0..8], .little);
+    offset.* += 8;
+    return value;
+}
+
+pub fn readU8(src: []const u8, offset: *usize) !u64 {
+    if (offset.* + 1 > src.len)
+        return error.UnexpectedEOF;
+
+    const value = src[offset.*];
+    offset.* += 1;
+    return value;
+}

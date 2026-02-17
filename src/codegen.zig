@@ -722,6 +722,34 @@ pub const CodeGen = struct {
                         exitIfIdx += 1;
                     }
                 },
+                .While => |x| {
+                    var setIfInitIdx: u64 = 0;
+                    if (x.els.items.len > 0) {
+                        try self.addExp(x.condition, .PushInt);
+                        setIfInitIdx = self.moduleIr.instructions.items.len + 1;
+                        try self.add(.JmpIfZero, 0, 0);
+                    }
+                    const gotoStartIdx = self.moduleIr.instructions.items.len;
+                    try self.addExp(x.condition, .PushInt);
+                    var setInitIdx = self.moduleIr.instructions.items.len + 1;
+                    try self.add(.JmpIfZero, 0, 0);
+                    try self.genStats(x.stats, def);
+                    // var setLoopIdx = self.moduleIr.instructions.items.len + 1;
+                    try self.add(.Jmp, gotoStartIdx, 0);
+
+                    var byte = std.mem.asBytes(&self.moduleIr.instructions.items.len);
+                    for (byte) |byt| {
+                        self.moduleIr.instructions.items[setIfInitIdx] = byt;
+                        setIfInitIdx += 1;
+                    }
+
+                    try self.genStats(x.els, def);
+                    byte = std.mem.asBytes(&(self.moduleIr.instructions.items.len));
+                    for (byte) |byt| {
+                        self.moduleIr.instructions.items[setInitIdx] = byt;
+                        setInitIdx += 1;
+                    }
+                },
 
                 else => {},
             }

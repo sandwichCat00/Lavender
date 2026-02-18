@@ -4,14 +4,12 @@
 
 defines the binary layout and instruction encoding for the bytecode.
 
-1. Main Function Pointer
-2. Function Table Size
-3. Constant Pool Offset/Pointer
+1. Function Table Size
+2. Function Table
+3. Main Function Pointer
 4. Constant Pool Size
-5. Instruction Stream Offset/Pointer
-6. Function Table
-7. Constant Pool
-8. Instruction Stream
+5. Constant Pool
+6. Instructions
 
 ---
 
@@ -19,16 +17,21 @@ defines the binary layout and instruction encoding for the bytecode.
 
 ```
 BytecodeFile {
-  MainFuncPointer: 8 bytes
   FunctionTableSize: 8 bytes
-  ConstantPoolPointer: 8 bytes
-  ConstantPoolSize: 8 bytes
-  InstructionStreamPointer: 8 bytes
   FunctionTable
-  constPool
+  MainFuncPointer: 8 bytes 
+  ConstantPoolSize: 8 bytes
+  ConstantPool
   instructions
 }
 ```
+
+---
+
+# MainFuncPointer
+
+Indexing starts 1.
+0 MainFuncPointer indicates no main function in class file.
 
 ---
 
@@ -38,7 +41,6 @@ BytecodeFile {
 FunctionTable: [
   [
     ptr,     // u64
-    name     // string
   ],
   ...
 ]
@@ -61,11 +63,13 @@ constPool: [
 
 # Instruction Encoding
 
-## Arithmetic Operations
+## Operations
 
 | Instruction | op   | access mode | op      |
 |-------------|------|-------------|---------|
 |Add, Sub, Mul, Div, Mod | 1 | 0 | 0 |
+|Eql, AddEql, SubEql, MulEql, DivEql, ModEql | 1 | 0 | 0 |
+|IsEql, IsNotEql, IsGtrEql, IsLesEql, IsGtr, IsLes | 1 | 0 | 0 |
 
 Operands are taken from the stack.
 
@@ -74,9 +78,9 @@ Operands are taken from the stack.
 # Push/Pop Instructions
 | Instruction | op   | access mode | op      |
 |-------------|------|-------------|---------|
-|push i8      |1 byte|1 byte       |1/8 bytes|
-|push i64     |1 byte|1 byte       |8 bytes  |
-|push f64     |1 byte|1 byte       |8 bytes  |
+|push int     |1 byte|1 byte       |8 bytes  |
+|push str     |1 byte|1 byte       |8 bytes  |
+|push float   |1 byte|1 byte       |8 bytes  |
 |pop          |1 byte|0 byte       |8 bytes  |
 
 # Func Call

@@ -20,7 +20,7 @@ A silly little language I made for fun. Lavender is bytecode-compiled. This Repo
 
 Requirements:
 
-- zig v0.15.2+
+- Zig >= 0.15.2
 
 
 Clone the repository:

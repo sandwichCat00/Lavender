@@ -1,9 +1,0 @@
-def main() void {
-  let x = toInt(input("Enter a No: "));
-  if (x == 10) {
-    println("its 10");
-  } else {
-    println("its not 10");
-  }
-  return;
-}
